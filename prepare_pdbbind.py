@@ -1,6 +1,7 @@
 from tqdm import tqdm
 import os.path
 from enum import Enum
+import traceback
 
 from openmm.app import PDBFile
 from pdbfixer import PDBFixer
@@ -21,6 +22,8 @@ defined_interactions = ['hydrophobic', 'hbond', 'pistacking', 'pication', 'saltb
 atom_types = [ 'B', 'C', 'F', 'I', 'N', 'O', 'P', 'S', 'Br', 'Cl', 'H' ]
 bond_types = [ 'single', 'double', 'triple', 'aromatic' ]
 
+# these pdbs failed processing with reasons beyond my fixing capabilities
+pdb_ignore_list = [ '6rsa' ]
 
 class mode( Enum ):
     MOLECULE = 1
@@ -250,10 +253,9 @@ def prepare_pdbbind():
             if line[0] != "#" and line != "":
                 pdb_list.append(line.split()[0])
 
-    overwrite = True
+    overwrite = False
 
-    pdb_list = ['2gst', '1a0q', '6gl8', '5fnu']
-    pdb_list = ['1a0q']
+    pdb_list = [ pdb for pdb in pdb_list if pdb not in pdb_ignore_list ]
 
     errors = {}
 
@@ -326,115 +328,62 @@ def prepare_pdbbind():
             # --------------------------------------------------------
             # Map preperations
             # --------------------------------------------------------
-            interaction_to_atom_res = {}
-            hetatm_id_to_atom_name = {}
-            chain_letters = []
+            pos_to_tensor_idx = {}
+            num_rec_atoms = rec_graph.pos.size(0)
+            for idx in range(num_rec_atoms):
+                pos = tuple((rec_graph.pos[idx] * 10).int().tolist())
+                pos_to_tensor_idx[pos] = idx
+            for idx in range(lig_graph.size(0)):
+                pos = tuple((lig_graph.pos[idx] * 10).int().tolist())
+                pos_to_tensor_idx[pos] = idx + num_rec_atoms
+
+            pdb_idx_to_pos = {}
+            pdb_rec_atoms = 0
             with open(pdb_path + "_complex.pdb") as file:
                 for line in file:
                     if "ATOM" == line[:4]:
-                        interaction_to_atom_res[ int(line[6:11]) ] = (line[12:16], line[21], int(line[22:26]))
-                        if line[21] not in chain_letters:
-                            chain_letters.append(line[21])
+                        idx = int(line[6:11])
+                        pos = (int(float(line[30:38])*10), int(float(line[38:46])*10), int(float(line[46:54])*10))
+                        pdb_idx_to_pos[ idx ] = pos
+                        pdb_rec_atoms += 1
                     elif "HETATM" == line[:6]:
-                        hetatm_id_to_atom_name[ int(line[6:11]) + len(interaction_to_atom_res) ] = line[12:16].strip()
-
-            # start it at 1 so the numbering from the complex file can be used as index
-            complex_to_protein_res_num = {}
-            chain_names = set()
-            current_chain = None
-            current_resnum = None
-            res_count = 0
-            with open(pdb_path + "_protein.pdb") as file:
-                for line in file:
-                    if "ATOM" == line[:4]:
-                        chain = line[21]
-                        resnum = int(line[22:26])
-                        if chain != current_chain:
-                            current_chain = chain
-                            chain_names.add(chain)
-                            res_count = 0
-                        if resnum != current_resnum:
-                            current_resnum = resnum
-                            res_count += 1
-                        complex_to_protein_res_num[(chain_letters[len(chain_names)-1], res_count)] = resnum
-
-            protein_to_pocket_res_num = {}
-            chain_names = set()
-            current_chain = None
-            current_resnum = None
-            res_count = 0
-            with open(pdb_path + "_pocket.pdb") as file:
-                for line in file:
-                    if "ATOM" == line[:4]:
-                        chain = line[21]
-                        resnum = int(line[22:26])
-                        if chain != current_chain:
-                            current_chain = chain
-                            chain_names.add(chain)
-                            res_count = 0
-                        if resnum != current_resnum:
-                            current_resnum = resnum
-                            res_count += 1
-                        protein_to_pocket_res_num[(chain_letters[len(chain_names)-1], resnum)] = res_count
-
-            pocket_atom_res_to_pocket_fixed_id = {}
-            ter_counter = 0
-            with open(pdb_path + "_pocket_fixed.pdb") as file:
-                for line in file:
-                    if "ATOM" == line[:4]:
-                        pocket_atom_res_to_pocket_fixed_id[ (line[12:16], line[21], int(line[22:26])) ] = int(line[6:11]) - ter_counter
-                    elif "TER" == line[:3]:
-                        ter_counter -= 1
-            num_rec_atoms_in_pocket_fixed = len(pocket_atom_res_to_pocket_fixed_id)
-
-
-            ligand_atom_name_to_index = {}
-            with open(pdb_path + "_ligand.mol2") as file:
-                in_atomsection = False
-                for line in file:
-                    if not in_atomsection and '@<TRIPOS>ATOM' in line:
-                        in_atomsection = True
-                        continue
-                    elif '@' in line:
-                        in_atomsection = False
-
-                    if in_atomsection:
-                        line = line.strip().split()
-                        ligand_atom_name_to_index[line[1]] = int(line[0])
+                        idx = int(line[6:11])
+                        pos = (int(float(line[30:38])*10), int(float(line[38:46])*10), int(float(line[46:54])*10))
+                        pdb_idx_to_pos[ idx + pdb_rec_atoms ] = pos
             
             # --------------------------------------------------------
             # Interaction calculation and Mapping
             # --------------------------------------------------------
 
-            print_mapping_steps = True
-
             for interaction_type in defined_interactions:
 
                 interactions_t = load_pdbbind_interactions(pdb_code, interaction_type)
-                if print_mapping_steps: print(interaction_type)
 
+                # tensor split
                 interactions_protein_t = interactions_t[:,0]
-                interactions_protein = [ interactions_protein_t[i].item() for i in range(interactions_protein_t.size(0))]
-                if print_mapping_steps: print(interactions_protein)
-                interactions_protein = [ interaction_to_atom_res[interactions_protein[i]] for i in range(interactions_protein_t.size(0))]
-                if print_mapping_steps: print(interactions_protein)
-                interactions_protein = [ (interactions_protein[i][0], interactions_protein[i][1], complex_to_protein_res_num[(interactions_protein[i][1], interactions_protein[i][2])]) for i in range(interactions_protein_t.size(0))]
-                if print_mapping_steps: print(interactions_protein)
-                interactions_protein = [ (interactions_protein[i][0], interactions_protein[i][1], protein_to_pocket_res_num[(interactions_protein[i][1], interactions_protein[i][2])]) for i in range(interactions_protein_t.size(0)) if (interactions_protein[i][1], interactions_protein[i][2]) in protein_to_pocket_res_num]
-                if print_mapping_steps: print(interactions_protein)
-                interactions_protein = [ pocket_atom_res_to_pocket_fixed_id[interactions_protein[i]] - 1 for i in range(interactions_protein_t.size(0))]
-                if print_mapping_steps: print(interactions_protein)
-                
                 interactions_ligand_t = interactions_t[:,1]
-                interactions_ligand = [ interactions_ligand_t[i].item() for i in range(interactions_ligand_t.size(0))]
-                if print_mapping_steps: print(interactions_ligand)
-                interactions_ligand = [ hetatm_id_to_atom_name[interactions_ligand[i]] for i in range(interactions_ligand_t.size(0))]
-                if print_mapping_steps: print(interactions_ligand)
-                interactions_ligand = [ num_rec_atoms_in_pocket_fixed + ligand_atom_name_to_index[interactions_ligand[i]] - 1 for i in range(interactions_ligand_t.size(0))]
-                if print_mapping_steps: print(interactions_ligand)
 
-                interactions_t = torch.stack([torch.tensor(interactions_protein), torch.tensor(interactions_ligand)], dim=1)
-                print(interaction_type, interactions_t)
+                # tensor to list
+                interactions_protein = [ interactions_protein_t[i].item() for i in range(interactions_protein_t.size(0))]
+                interactions_ligand = [ interactions_ligand_t[i].item() for i in range(interactions_ligand_t.size(0))]
+
+                # pdb/interaction idx to position
+                interactions_protein = [ pdb_idx_to_pos[interactions_protein[i]] for i in range(interactions_protein_t.size(0))]
+                interactions_ligand = [ pdb_idx_to_pos[interactions_ligand[i]] for i in range(interactions_ligand_t.size(0))]
+
+                # position to tensor idx
+                #
+                # There seems to be an issue with cutoff distances in pdbbind or plip
+                # pdbbind uses 10A, plip 7.5A, but plip reports interactions for residues which are not in the _pocket.pdb file
+                # I assume this is due to issues like heavy atom within cutoff or CA within cutoff
+                interactions_protein_final = [ pos_to_tensor_idx[interactions_protein[i]] for i in range(interactions_protein_t.size(0))
+                                         if interactions_protein[i] in pos_to_tensor_idx and interactions_ligand[i] in pos_to_tensor_idx ]
+                
+                interactions_ligand_final = [ pos_to_tensor_idx[interactions_ligand[i]] for i in range(interactions_ligand_t.size(0))
+                                        if interactions_protein[i] in pos_to_tensor_idx and interactions_ligand[i] in pos_to_tensor_idx ]
+
+                # lists to tensors
+                interactions_t = torch.stack([torch.tensor(interactions_protein_final), torch.tensor(interactions_ligand_final)], dim=1)
 
                 # TODO: Write a sanity check which makes sure the mapped atom positions are identical
                 #       and maybe also checks if the interactions make sense with regard to the used descriptor tensors after mapping
@@ -442,9 +391,12 @@ def prepare_pdbbind():
                 torch.save(interactions_t, pdb_path + "_" + interaction_type + ".tensor")
 
         except Exception as e:
-            errors[ pdb_code ] = e
+            errors[ pdb_code ] = traceback.format_exc()
 
-    print(errors)
+    print("Found", len(errors), "Errors:")
+    for key in errors:
+        print(key)
+        print(errors[key])
 
 def main():
     prepare_pdbbind()

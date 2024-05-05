@@ -253,7 +253,7 @@ def prepare_pdbbind():
             if line[0] != "#" and line != "":
                 pdb_list.append(line.split()[0])
 
-    overwrite = False
+    overwrite = True
 
     pdb_list = [ pdb for pdb in pdb_list if pdb not in pdb_ignore_list ]
 
@@ -261,7 +261,7 @@ def prepare_pdbbind():
 
     for pdb_code in tqdm(pdb_list):
         pdb_path = "pdbbind2020/" + pdb_code + "/" + pdb_code
-        if os.path.isfile( pdb_path + "_hbond.tensor") and not overwrite:
+        if os.path.isfile( pdb_path + "_" + defined_interactions[-1] + ".tensor") and not overwrite:
             continue
 
         try:
@@ -321,19 +321,29 @@ def prepare_pdbbind():
             # --------------------------------------------------------
 
             rec_graph = load_pdbbind_receptor(pdb_code)
-            torch.save(rec_graph, pdb_path + "_rec.graph")
             lig_graph = load_pdbbind_ligand(pdb_code)
-            torch.save(lig_graph, pdb_path + "_lig.graph")
+            
+            combined_graph = Data(
+                x = torch.cat([rec_graph.x, lig_graph.x], dim=0),
+                edge_index = torch.cat([rec_graph.edge_index, lig_graph.edge_index + rec_graph.num_nodes], dim=1),
+                edge_attr = torch.cat([rec_graph.edge_attr, lig_graph.edge_attr]),
+                pos = torch.cat([rec_graph.pos, lig_graph.pos]),
+                n_rec_nodes = [rec_graph.num_nodes],
+                n_lig_nodes = [lig_graph.num_nodes],
+                pdb = [pdb_code]
+            )
+
+            torch.save(combined_graph, pdb_path + "_combined.graph")
             
             # --------------------------------------------------------
             # Map preperations
             # --------------------------------------------------------
             pos_to_tensor_idx = {}
-            num_rec_atoms = rec_graph.pos.size(0)
+            num_rec_atoms = rec_graph.num_nodes
             for idx in range(num_rec_atoms):
                 pos = tuple((rec_graph.pos[idx] * 10).int().tolist())
                 pos_to_tensor_idx[pos] = idx
-            for idx in range(lig_graph.size(0)):
+            for idx in range(lig_graph.num_nodes):
                 pos = tuple((lig_graph.pos[idx] * 10).int().tolist())
                 pos_to_tensor_idx[pos] = idx + num_rec_atoms
 
@@ -381,9 +391,15 @@ def prepare_pdbbind():
                 
                 interactions_ligand_final = [ pos_to_tensor_idx[interactions_ligand[i]] for i in range(interactions_ligand_t.size(0))
                                         if interactions_protein[i] in pos_to_tensor_idx and interactions_ligand[i] in pos_to_tensor_idx ]
+                
+                # filter interactions between differently named parts of the ligand
+                interactions_protein_final_filter = [interactions_protein_final[i] for i in range(interactions_protein_t.size(0))
+                                                     if interactions_protein_final[i] < num_rec_atoms]
+                interactions_ligand_final_filter = [interactions_ligand_final[i] for i in range(interactions_protein_t.size(0))
+                                                     if interactions_protein_final[i] < num_rec_atoms]
 
                 # lists to tensors
-                interactions_t = torch.stack([torch.tensor(interactions_protein_final), torch.tensor(interactions_ligand_final)], dim=1)
+                interactions_t = torch.stack([torch.tensor(interactions_protein_final_filter), torch.tensor(interactions_ligand_final_filter)], dim=1)
 
                 # TODO: Write a sanity check which makes sure the mapped atom positions are identical
                 #       and maybe also checks if the interactions make sense with regard to the used descriptor tensors after mapping

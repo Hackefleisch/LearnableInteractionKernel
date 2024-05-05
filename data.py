@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset
 import torch
+from torch_geometric.data import Data
 
 class PDBBindInteractionDataset(Dataset):
 
@@ -22,19 +23,39 @@ class PDBBindInteractionDataset(Dataset):
     def __getitem__(self, idx):
         pdb_code = self.pdbcodes[idx]
         path = self.pdbbind_path + pdb_code + "/" + pdb_code
-        rec_graph = torch.load(path + "_rec.graph")
-        lig_graph = torch.load(path + "_lig.graph")
+        combined_graph = torch.load(path + "_combined.graph")
         interactions = torch.load(path + "_" + self.interaction_type + ".tensor")
-        return rec_graph, lig_graph, interactions, self.pdbcodes[idx]
+        combined_graph.y = interactions
+        return combined_graph
     
     def collate_fn(self, data):
-        rec_graphs = []
-        lig_graphs = []
-        interactions = []
-        pdb_codes = []
-        for rec_g, lig_g, intera, pdb in data:
-            rec_graphs.append(rec_g)
-            lig_graphs.append(lig_g)
-            interactions.append(intera)
-            pdb_codes.append(pdb)
-        return rec_graphs, lig_graphs, interactions, pdb_codes
+        x = []
+        pos = []
+        edge_attr = []
+        edge_index = []
+        pdb = []
+        n_rec_nodes = []
+        n_lig_nodes = []
+        y = []
+        for combined_graph in data:
+            x.append(combined_graph.x)
+            pos.append(combined_graph.pos)
+            edge_attr.append(combined_graph.edge_attr)
+            edge_index.append(combined_graph.edge_index + sum(n_rec_nodes) + sum(n_lig_nodes))
+            y.append(combined_graph.y + sum(n_rec_nodes) + sum(n_lig_nodes))
+            pdb.extend(combined_graph.pdb)
+            n_rec_nodes.extend(combined_graph.n_rec_nodes)
+            n_lig_nodes.extend(combined_graph.n_lig_nodes)
+
+        multigraph = Data(
+            x = torch.cat(x, dim=0),
+            pos = torch.cat(pos, dim=0),
+            edge_attr = torch.cat(edge_attr, dim=0),
+            edge_index = torch.cat(edge_index, dim=1),
+            y = torch.cat(y, dim=0),
+            pdb = pdb,
+            n_rec_nodes = n_rec_nodes,
+            n_lig_nodes = n_lig_nodes,
+        )
+
+        return multigraph

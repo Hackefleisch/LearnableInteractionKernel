@@ -23,7 +23,23 @@ atom_types = [ 'B', 'C', 'F', 'I', 'N', 'O', 'P', 'S', 'Br', 'Cl', 'H' ]
 bond_types = [ 'single', 'double', 'triple', 'aromatic' ]
 
 # these pdbs failed processing with reasons beyond my fixing capabilities
-pdb_ignore_list = [ '6rsa' ]
+pdb_ignore_list = [ '6rsa', '3nzc' ]
+
+# these have ligands which include atoms which are not in the atom types list due to low representation like Fe, Cu, Si and Be
+pdb_ignore_list.extend( ['1lvk', '1hyv', '1hyz', '1esz', '1k2v', '2fou', '2fov', '1y3g', '2foy', '2cfd', '2p8o', '2cfg', '2v96',
+                         '3csl', '2wq4', '3m1s', '3pup', '3p3h', '3ro0', '3p44', '3p55', '3zs1', '3p3j', '3tdz', '2yak', '3qlb', 
+                         '2ydm', '2z97', '3bwf', '2jld', '3cst', '3fxz', '3fy0', '3q4c', '3qo9', '4dcy', '4dcx', '3rj7', '4daw', 
+                         '4ehr', '4fea', '4jhq', '4i60', '3zp9', '4jjf', '4jjg', '4kii', '3wc5', '4jfv', '4fil', '4hmq', '4jfw', 
+                         '3w8o', '3whw', '4u5t', '4z46', '5fjw', '5dhf', '4xkc', '4rlp', '5ujo', '5fsb', '5m29', '5m34', '5m3b', 
+                         '5hki', '5hlm', '5m2q', '5tgy', '6d1m', '5zeq', '6ceh', '6d1l', '5od5', '6hx5', '5nxx', '6b30', '5nxy',
+                         '6hwz', '6pgx', '6qfv', '6abk', '6qfw', '6qfu', '6qfx', '6h3q', '6i96', '6rrm', '6frj', '6e4v', '6i97'] )
+
+# these report a HIS atom set error
+pdb_ignore_list.extend( ['1svh', '1h6e', '3s74', '3smq', '2y4k', '3bho', '3bc5', '3fxv', '3sm0', '4hai', '4ehm', '4ayt', '3rv9',
+                         '3uib', '4ayw', '4gv8', '4bae', '4mb9', '4ezj', '4j8t', '4aw8', '4kv9', '4kva', '4q2k', '4ryl', '4rrr', 
+                         '4rrq', '4yxu', '4zyv', '5iui', '5izu', '4xuh', '4yb6', '5hx8', '5gic', '5j3s', '5mrd', '5q0x', '5ngf',
+                         '5ien', '5one', '5if6', '5wqd', '6gbx', '5wkl', '6do4', '5ypw', '6ck3', '5wgq', '6do5', '6hjk', '6ck6', 
+                         '6cmr', '6cjy', '6c5t', '6qyo', '6i4x', '6edl', '6r0x', '6e0r', '6ebw'] )
 
 class mode( Enum ):
     MOLECULE = 1
@@ -124,6 +140,8 @@ def load_pdbbind_ligand(pdb_code, pdbbind_path='pdbbind2020/'):
                 if len( line ) >= 6:
                     elem = line[ 5 ].split('.')[0]
                     index = int( line[0] )-1
+                    if elem not in atom_types:
+                        raise ValueError("AtomType error:" + elem + "is not supported.")
                     lig_atom_labels[index][atom_types.index(elem)] = 1
                     for i in range( 3 ):
                         lig_atom_pos[index][i] = float( line[2+i] )
@@ -153,7 +171,8 @@ def load_pdbbind_ligand(pdb_code, pdbbind_path='pdbbind2020/'):
                         bond_type = 'single'
                         #print("WARNING:", pdb_code, "has dummy bond in ligand file. Treating it as single bond")
                     else:
-                        print("ERROR:", pdb_code, "has bond_type", line[3], "in ligand file")
+                        bond_type = 'single'
+                        print("ERROR:", pdb_code, "has bond_type", line[3], "in ligand file. Treating it as single.")
                     lig_bond_labels[index*2][bond_types.index(bond_type)]=1
                     lig_bond_labels[index*2+1][bond_types.index(bond_type)]=1
 
@@ -244,7 +263,7 @@ def load_pdbbind_interactions(pdb_code, interaction_type, pdbbind_path='pdbbind2
 
     return interaction_tensors.unique(dim=0)
 
-def prepare_pdbbind():
+def prepare_pdbbind(thread_id, max_threads):
     pdb_list = []
 
     with open("INDEX_structure.2020") as file:
@@ -256,12 +275,19 @@ def prepare_pdbbind():
     overwrite = True
 
     pdb_list = [ pdb for pdb in pdb_list if pdb not in pdb_ignore_list ]
+    size = int(len(pdb_list) / max_threads)
+    leftovers = len(pdb_list) % size
 
+    pdb_list = pdb_list[thread_id*size:thread_id*size+size + (leftovers if max_threads - thread_id == 1 else 0)]
+    
     errors = {}
+    # collect and summarize known errors
+    errors['HISset'] = []
+    errors['Ligatm'] = []
 
     for pdb_code in tqdm(pdb_list):
         pdb_path = "pdbbind2020/" + pdb_code + "/" + pdb_code
-        if os.path.isfile( pdb_path + "_" + defined_interactions[-1] + ".tensor") and not overwrite:
+        if os.path.isfile( pdb_path + "_combined.graph") and not overwrite:
             continue
 
         try:
@@ -393,9 +419,9 @@ def prepare_pdbbind():
                                         if interactions_protein[i] in pos_to_tensor_idx and interactions_ligand[i] in pos_to_tensor_idx ]
                 
                 # filter interactions between differently named parts of the ligand
-                interactions_protein_final_filter = [interactions_protein_final[i] for i in range(interactions_protein_t.size(0))
+                interactions_protein_final_filter = [interactions_protein_final[i] for i in range(len(interactions_ligand_final))
                                                      if interactions_protein_final[i] < num_rec_atoms]
-                interactions_ligand_final_filter = [interactions_ligand_final[i] for i in range(interactions_protein_t.size(0))
+                interactions_ligand_final_filter = [interactions_ligand_final[i] for i in range(len(interactions_ligand_final))
                                                      if interactions_protein_final[i] < num_rec_atoms]
 
                 # lists to tensors
@@ -407,15 +433,33 @@ def prepare_pdbbind():
                 torch.save(interactions_t, pdb_path + "_" + interaction_type + ".tensor")
 
         except Exception as e:
-            errors[ pdb_code ] = traceback.format_exc()
+            if e.__str__()[:3] == "HIS":
+                errors['HISset'].append(pdb_code)
+            elif e.__str__()[:8] == "AtomType":
+                errors['Ligatm'].append(pdb_code)
+            else:
+                errors[ pdb_code ] = traceback.format_exc()
 
-    print("Found", len(errors), "Errors:")
+    if errors['HISset'] == []:
+        del errors['HISset']
+    if errors['Ligatm'] == []:
+        del errors['Ligatm']
+    print("Found", len(errors), "Errors")
     for key in errors:
         print(key)
         print(errors[key])
 
-def main():
-    prepare_pdbbind()
+def main(thread_id, max_threads):
+    prepare_pdbbind(thread_id, max_threads)
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Prepare pdbbind data for training')
+    parser.add_argument('--thread', type=int, required=True,
+                        help='ID for the current thread for emberassing parallel execution')
+    parser.add_argument('--thread_max', type=int, required=True,
+                        help='Max number of used threads for emberassing parallel execution')
+    
+    args = parser.parse_args()
+    main(args.thread, args.thread_max)

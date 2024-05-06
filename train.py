@@ -123,54 +123,55 @@ def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, in
 
 
 def main():
-
-    failed_pdb_list = []
+    from prepare_pdbbind import pdb_ignore_list
 
     df = pd.read_csv('LP_PDBBind.csv', index_col=0)
-    train_pdbs = [ x for x in list(df[(df['new_split'] == 'train') & df.CL1 & ~df.covalent].index) if x not in failed_pdb_list ]
-    test_pdbs = [ x for x in list(df[(df['new_split'] == 'test') & df.CL1 & ~df.covalent].index) if x not in failed_pdb_list ]
-
-    pdb_list = []
-
-    with open("INDEX_structure.2020") as file:
-        for line in file:
-            line=line.strip()
-            if line[0] != "#" and line != "":
-                pdb_list.append(line.split()[0])
-    
-
-    errorlist = ['1b6j', '6rsa']
-    pdb_list = [ pdb for pdb in pdb_list if pdb not in errorlist]
-
-    # these are available after recalc
-    train_pdbs = pdb_list[:200]
-    test_pdbs = pdb_list[200:300]
+    train_pdbs = [ x for x in list(df[(df['new_split'] == 'train') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
+    test_pdbs = [ x for x in list(df[(df['new_split'] == 'test') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
 
     for interaction_type in ['hbond']:
         print("@@@@ ", interaction_type)
-        inter_pred = InteractionPredictor(n_pattern_layers = 3, 
-                                    radius = 7.5,
-                                    irreps_input = o3.Irreps("8x0e"),
-                                    irreps_message = o3.Irreps("8x0e + 1x1o + 1x2e"),
-                                    pattern_spherical_harmonics_l = 2,
-                                    irreps_node = o3.Irreps("8x0e + 1x1o + 1x2e"),
-                                    node_embedding_size = 8, 
-                                    node_emb_hidden_layers = [], 
-                                    node_act = torch.relu,
-                                    edge_embedding_size = 4,
-                                    edge_emb_hidden_layers = [],
-                                    edge_act = torch.relu,
-                                    msg_weights_hidden_layers = [16],
-                                    msg_weights_act = torch.relu,
-                                    node_update_hidden_layers = [24], 
-                                    node_update_act = torch.relu,
-                                    basis_density_per_A = 5, 
-                                    inter_spherical_harmonics_l = 2,
-                                    inter_tp_weights_hidden_layers = [24], 
-                                    inter_tp_weights_act = torch.relu,
-                                    irreps_out = o3.Irreps("1x0e"),
-                                    batch_normalize_update=False,
-                                    batch_normalize_msg=True)
+        inter_pred = InteractionPredictor(
+            # node embedding mlp
+            node_emb_hidden_layers = [],
+            node_embedding_size = 8,
+
+            # message weights mlp
+            msg_weights_hidden_layers = [],
+            msg_weights_act = torch.relu,
+
+            # message tp spherical harmonics edge
+            pattern_spherical_harmonics_l = 2,
+
+            # message format
+            irreps_message = o3.Irreps("8x0e + 1x1o + 1x2e"),
+
+            # message batch normalization
+            batch_normalize_msg = True,
+
+            # node update weights mlp
+            node_update_hidden_layers = [],
+            node_update_act = torch.relu,
+
+            # geometric node format
+            irreps_node = o3.Irreps("8x0e + 1x1o + 1x2e"),
+
+            # node update batch normalization
+            batch_normalize_update=False,
+
+            # interaction tp weights mlp
+            basis_density_per_A = 5,
+            inter_tp_weights_hidden_layers = [],
+            inter_tp_weights_act = torch.relu,
+
+            # interaction tp spherical harmonics
+            inter_spherical_harmonics_l = 2,
+
+            # general
+            n_pattern_layers = 1,
+            radius = 7.5,
+            irreps_out = o3.Irreps("1x0e")
+        )
 
         print("Model weights:", sum(p.numel() for p in inter_pred.parameters() if p.requires_grad))
 
@@ -182,7 +183,7 @@ def main():
         dataset_test = PDBBindInteractionDataset("pdbbind2020/", test_pdbs, interaction_type)
         dataloader_test = DataLoader(dataset_test, batch_size=50, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
 
-        train(600, 100, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
+        train(2, 2, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
         print("\n-------------------------------------------------------------\n")
 
 if __name__ == "__main__":

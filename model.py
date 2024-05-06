@@ -54,7 +54,7 @@ class e3mp_step(torch.nn.Module):
         self.bn_msg = BatchNorm(self.irreps_message) if self.batch_normalize_msg else None
         self.bn_update = BatchNorm(self.irreps_node_out) if self.batch_normalize_update else None
 
-    def forward(self, graph, initial_node_features):
+    def forward(self, graph, onehot_node_features):
         # generate edge embeddings in spherical harmonics
         edge_src=graph.edge_index[0]
         edge_dst=graph.edge_index[1]
@@ -70,7 +70,7 @@ class e3mp_step(torch.nn.Module):
         if self.batch_normalize_msg:
             messages = self.bn_msg(messages)
 
-        updated_node_features = self.e3tp_node_update(graph.x, messages, self.mlp_node_update_weights(initial_node_features) )
+        updated_node_features = self.e3tp_node_update(graph.x, messages, self.mlp_node_update_weights(onehot_node_features) )
 
         if self.batch_normalize_update:
             updated_node_features = self.bn_update(updated_node_features)
@@ -81,9 +81,8 @@ class e3mp_step(torch.nn.Module):
 class e3pattern(torch.nn.Module):
 
     def __init__(self, n_layers,
-                 irreps_input, irreps_message, spherical_harmonics_l, irreps_node,
-                 node_embedding_size, node_emb_hidden_layers, node_act,
-                 edge_embedding_size, edge_emb_hidden_layers, edge_act,
+                 irreps_message, spherical_harmonics_l, irreps_node,
+                 node_embedding_size, node_emb_hidden_layers,
                  msg_weights_hidden_layers, msg_weights_act,
                  node_update_hidden_layers, node_update_act,
                  batch_normalize_msg, batch_normalize_update):
@@ -92,7 +91,6 @@ class e3pattern(torch.nn.Module):
 
         # variables
         self.node_embedding_size = node_embedding_size
-        self.edge_embedding_size = edge_embedding_size
         self.n_layers = n_layers
         self.msg_weights_hidden_layers=msg_weights_hidden_layers
         self.msg_weights_act=msg_weights_act
@@ -100,7 +98,7 @@ class e3pattern(torch.nn.Module):
         self.node_update_act=node_update_act
 
         # irreps
-        self.irreps_input = irreps_input
+        self.irreps_input = o3.Irreps( str(node_embedding_size) + "x0e")
         self.irreps_message = irreps_message
         self.irreps_sh = o3.Irreps.spherical_harmonics(lmax=spherical_harmonics_l)
         self.irreps_node = irreps_node
@@ -110,11 +108,7 @@ class e3pattern(torch.nn.Module):
         self.node_emb_layers = [len(atom_types)]
         self.node_emb_layers.extend( node_emb_hidden_layers )
         self.node_emb_layers.append( self.node_embedding_size )
-        self.mlp_node_embedder = FullyConnectedNet(self.node_emb_layers, node_act)
-        self.edge_emb_layers = [len(bond_types)]
-        self.edge_emb_layers.extend( edge_emb_hidden_layers )
-        self.edge_emb_layers.append( self.edge_embedding_size )
-        self.mlp_edge_embedder = FullyConnectedNet(self.edge_emb_layers, edge_act)
+        self.mlp_node_embedder = FullyConnectedNet(self.node_emb_layers)
 
         # message passing layers
         self.layers = torch.nn.ModuleList()
@@ -123,8 +117,8 @@ class e3pattern(torch.nn.Module):
                                      irreps_message=self.irreps_message,
                                      irreps_node_out=self.irreps_node,
                                      irreps_sh=self.irreps_sh,
-                                     n_edge_features=self.edge_embedding_size,
-                                     n_node_features=self.node_embedding_size,
+                                     n_edge_features=len(bond_types),
+                                     n_node_features=len(atom_types),
                                      msg_weights_hidden_layers=self.msg_weights_hidden_layers,
                                      msg_weights_act=self.msg_weights_act,
                                      node_update_hidden_layers=self.node_update_hidden_layers,
@@ -138,8 +132,8 @@ class e3pattern(torch.nn.Module):
                                          irreps_message=self.irreps_message,
                                          irreps_node_out=self.irreps_node,
                                          irreps_sh=self.irreps_sh,
-                                         n_edge_features=self.edge_embedding_size,
-                                         n_node_features=self.node_embedding_size,
+                                         n_edge_features=len(bond_types),
+                                         n_node_features=len(atom_types),
                                          msg_weights_hidden_layers=self.msg_weights_hidden_layers,
                                          msg_weights_act=self.msg_weights_act,
                                          node_update_hidden_layers=self.node_update_hidden_layers,
@@ -149,12 +143,11 @@ class e3pattern(torch.nn.Module):
     
     def forward(self, graph):
         node_emb = self.mlp_node_embedder(graph.x)
-        edge_emb = self.mlp_edge_embedder(graph.edge_attr)
 
-        initial_node_emb = node_emb
-        updated_graph = Data(x=node_emb, edge_index=graph.edge_index, pos=graph.pos, edge_attr=edge_emb)
+        onehot_node_emb = graph.x
+        updated_graph = Data(x=node_emb, edge_index=graph.edge_index, pos=graph.pos, edge_attr=graph.edge_attr)
         for layer in self.layers:
-            updated_graph.x = layer(updated_graph, initial_node_emb)
+            updated_graph.x = layer(updated_graph, onehot_node_emb)
 
         return updated_graph
 
@@ -195,9 +188,8 @@ class e3interaction(torch.nn.Module):
 class InteractionPredictor(torch.nn.Module):
 
     def __init__(self, n_pattern_layers, radius,
-                 irreps_input, irreps_message, pattern_spherical_harmonics_l, irreps_node,
-                 node_embedding_size, node_emb_hidden_layers, node_act,
-                 edge_embedding_size, edge_emb_hidden_layers, edge_act,
+                 irreps_message, pattern_spherical_harmonics_l, irreps_node,
+                 node_embedding_size, node_emb_hidden_layers,
                  msg_weights_hidden_layers, msg_weights_act,
                  node_update_hidden_layers, node_update_act,
                  basis_density_per_A, inter_spherical_harmonics_l,
@@ -214,9 +206,8 @@ class InteractionPredictor(torch.nn.Module):
 
         # modules
         self.pattern_detector = e3pattern(n_pattern_layers,
-                 irreps_input, irreps_message, pattern_spherical_harmonics_l, irreps_node,
-                 node_embedding_size, node_emb_hidden_layers, node_act,
-                 edge_embedding_size, edge_emb_hidden_layers, edge_act,
+                 irreps_message, pattern_spherical_harmonics_l, irreps_node,
+                 node_embedding_size, node_emb_hidden_layers,
                  msg_weights_hidden_layers, msg_weights_act,
                  node_update_hidden_layers, node_update_act,
                  batch_normalize_msg=batch_normalize_msg,

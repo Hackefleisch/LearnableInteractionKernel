@@ -203,8 +203,6 @@ class InteractionPredictor(torch.nn.Module):
                                          inter_tp_weights_hidden_layers, inter_tp_weights_act)
 
     def forward(self, combined_graph, all_inter_edge_index=None):
-
-        pattern_rec_graph = self.pattern_detector(combined_graph)
         
         if all_inter_edge_index == None:
             all_inter_edge_index = []
@@ -248,6 +246,8 @@ class InteractionPredictor(torch.nn.Module):
                 count_all_nodes += num_rec_nodes + num_lig_nodes
 
                 all_inter_edge_index.append(inter_edge_index)
+
+        pattern_rec_graph = self.pattern_detector(combined_graph)
 
         all_inter_edge_index=torch.cat(all_inter_edge_index, dim=1)
         interaction_graph = Data(x=pattern_rec_graph.x, pos=combined_graph.pos, edge_index=all_inter_edge_index)

@@ -146,7 +146,7 @@ def main():
     train_pdbs = pdb_list[:200]
     test_pdbs = pdb_list[200:300]
 
-    for interaction_type in ['hydrophobic']:
+    for interaction_type in ['hbond']:
         print("@@@@ ", interaction_type)
         inter_pred = InteractionPredictor(n_pattern_layers = 3, 
                                     radius = 7.5,
@@ -168,7 +168,9 @@ def main():
                                     inter_spherical_harmonics_l = 2,
                                     inter_tp_weights_hidden_layers = [24], 
                                     inter_tp_weights_act = torch.relu,
-                                    irreps_out = o3.Irreps("1x0e"))
+                                    irreps_out = o3.Irreps("1x0e"),
+                                    batch_normalize_update=False,
+                                    batch_normalize_msg=True)
 
         print("Model weights:", sum(p.numel() for p in inter_pred.parameters() if p.requires_grad))
 
@@ -180,7 +182,7 @@ def main():
         dataset_test = PDBBindInteractionDataset("pdbbind2020/", test_pdbs, interaction_type)
         dataloader_test = DataLoader(dataset_test, batch_size=50, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
 
-        train(10, 2, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
+        train(600, 100, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
         print("\n-------------------------------------------------------------\n")
 
 if __name__ == "__main__":

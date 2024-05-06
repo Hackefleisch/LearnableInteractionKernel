@@ -1,6 +1,6 @@
 import torch
 from e3nn import o3
-from e3nn.nn import Gate
+from e3nn.nn import BatchNorm
 from e3nn.nn import FullyConnectedNet
 from e3nn.math import soft_one_hot_linspace
 from torch_scatter import scatter
@@ -16,13 +16,16 @@ class e3mp_step(torch.nn.Module):
     def __init__(self, irreps_node_in, irreps_message, irreps_node_out, irreps_sh, 
                  n_edge_features, n_node_features, 
                  msg_weights_hidden_layers, msg_weights_act, 
-                 node_update_hidden_layers, node_update_act):
+                 node_update_hidden_layers, node_update_act,
+                 batch_normalize_msg, batch_normalize_update):
         super(e3mp_step, self).__init__()
         # irreps
         self.irreps_node_in = irreps_node_in
         self.irreps_message = irreps_message
         self.irreps_node_out = irreps_node_out
         self.irreps_sh = irreps_sh
+        self.batch_normalize_msg = batch_normalize_msg
+        self.batch_normalize_update = batch_normalize_update
 
         # e3 tensor products
         self.e3tp_message = o3.FullyConnectedTensorProduct(self.irreps_node_in,
@@ -47,6 +50,10 @@ class e3mp_step(torch.nn.Module):
         self.node_update_layers.append( self.e3tp_node_update.weight_numel )
         self.mlp_node_update_weights = FullyConnectedNet(self.node_update_layers, node_update_act)
 
+        # batch normalizer
+        self.bn_msg = BatchNorm(self.irreps_message) if self.batch_normalize_msg else None
+        self.bn_update = BatchNorm(self.irreps_node_out) if self.batch_normalize_update else None
+
     def forward(self, graph, initial_node_features):
         # generate edge embeddings in spherical harmonics
         edge_src=graph.edge_index[0]
@@ -60,8 +67,16 @@ class e3mp_step(torch.nn.Module):
         tp_results = self.e3tp_message(graph.x[edge_src], edge_sh, tp_weights)
         messages = scatter(tp_results, edge_dst, dim=0, dim_size=graph.x.size(dim=0)).div(num_neighbors**0.5)
 
+        if self.batch_normalize_msg:
+            messages = self.bn_msg(messages)
+
+        updated_node_features = self.e3tp_node_update(graph.x, messages, self.mlp_node_update_weights(initial_node_features) )
+
+        if self.batch_normalize_update:
+            updated_node_features = self.bn_update(updated_node_features)
+
         # update node features
-        return self.e3tp_node_update(graph.x, messages, self.mlp_node_update_weights(initial_node_features) )
+        return updated_node_features
 
 class e3pattern(torch.nn.Module):
 
@@ -70,7 +85,8 @@ class e3pattern(torch.nn.Module):
                  node_embedding_size, node_emb_hidden_layers, node_act,
                  edge_embedding_size, edge_emb_hidden_layers, edge_act,
                  msg_weights_hidden_layers, msg_weights_act,
-                 node_update_hidden_layers, node_update_act):
+                 node_update_hidden_layers, node_update_act,
+                 batch_normalize_msg, batch_normalize_update):
         super(e3pattern, self).__init__()
 
 
@@ -112,7 +128,9 @@ class e3pattern(torch.nn.Module):
                                      msg_weights_hidden_layers=self.msg_weights_hidden_layers,
                                      msg_weights_act=self.msg_weights_act,
                                      node_update_hidden_layers=self.node_update_hidden_layers,
-                                     node_update_act=self.node_update_act))
+                                     node_update_act=self.node_update_act,
+                                     batch_normalize_msg=batch_normalize_msg,
+                                     batch_normalize_update=batch_normalize_update))
         
         # TODO: Add gates!
         for _ in range(1,n_layers):
@@ -125,7 +143,9 @@ class e3pattern(torch.nn.Module):
                                          msg_weights_hidden_layers=self.msg_weights_hidden_layers,
                                          msg_weights_act=self.msg_weights_act,
                                          node_update_hidden_layers=self.node_update_hidden_layers,
-                                         node_update_act=self.node_update_act))
+                                         node_update_act=self.node_update_act,
+                                         batch_normalize_msg=batch_normalize_msg,
+                                         batch_normalize_update=batch_normalize_update))
     
     def forward(self, graph):
         node_emb = self.mlp_node_embedder(graph.x)
@@ -182,7 +202,8 @@ class InteractionPredictor(torch.nn.Module):
                  node_update_hidden_layers, node_update_act,
                  basis_density_per_A, inter_spherical_harmonics_l,
                  inter_tp_weights_hidden_layers, inter_tp_weights_act,
-                 irreps_out):
+                 irreps_out,
+                 batch_normalize_msg, batch_normalize_update):
         super(InteractionPredictor, self).__init__()
 
         # variables
@@ -197,7 +218,9 @@ class InteractionPredictor(torch.nn.Module):
                  node_embedding_size, node_emb_hidden_layers, node_act,
                  edge_embedding_size, edge_emb_hidden_layers, edge_act,
                  msg_weights_hidden_layers, msg_weights_act,
-                 node_update_hidden_layers, node_update_act)
+                 node_update_hidden_layers, node_update_act,
+                 batch_normalize_msg=batch_normalize_msg,
+                 batch_normalize_update=batch_normalize_update)
         self.interaction = e3interaction(irreps_node, irreps_out, self.radius, 
                                          basis_density_per_A, inter_spherical_harmonics_l, 
                                          inter_tp_weights_hidden_layers, inter_tp_weights_act)

@@ -105,12 +105,17 @@ def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, in
         precision = 0.0
         if tp + fp != 0:
             precision = 100*tp / (tp+fp)
-        print(f"loss: {epoch_loss/len(dataloader_train):>7f}  recall: {recall:>6.2f}%  precision: {precision:>6.2f}%  [{e:>5d}/{num_epochs:>5d}]")
+        print(f"loss: {epoch_loss/len(dataloader_train):>7.10f}  recall: {recall:>6.2f}%  precision: {precision:>6.2f}%  [{e:>5d}/{num_epochs:>5d}]")
         if e % eval_every_n_epochs == 0 or e == num_epochs:
             eval_loss, eval_conf_matrix = interaction_eval(dataloader_eval, interaction_model, loss_fn, device)
-            print(f"####    eval set loss: {eval_loss/len(dataloader_eval):>7f}")
-            print(f"        |{eval_conf_matrix[0,0]:>7d}|{eval_conf_matrix[0,1]:>7d}|")  
-            print(f"        |{eval_conf_matrix[1,0]:>7d}|{eval_conf_matrix[1,1]:>7d}|")
+            tp = eval_conf_matrix[0,0]
+            fn = eval_conf_matrix[1,0]
+            fp = eval_conf_matrix[0,1]
+            recall = 100*tp/(tp+fn)
+            precision = 0.0
+            if tp + fp != 0:
+                precision = 100*tp / (tp+fp)
+            print(f"####    eval set loss: {eval_loss/len(dataloader_eval):>7.10f}  recall: {recall:>6.2f}%  precision: {precision:>6.2f}%")
             if eval_loss < best_eval_loss:
                 best_eval_loss = eval_loss
                 if save_weights:
@@ -118,16 +123,30 @@ def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, in
 
 
 def main():
-    # all but the last one did not finish the prepare pdb bind script due to a wrong set of atoms for a histidine aminoacid
-    # the last ones ligand is not detected by plip
-    failed_pdb_list = ['1h6e', '1svh', '3bho', '3bc5', '3fxv', '3s74', '3smq', '2y4k', '3sm0', '4hai', '4ehm', '4ayt', '3rv9', '3uib', '4ayw', '4gv8', '4bae', '4mb9', '4ezj', '4j8t', '4aw8', '4kv9', '4kva', '4q2k', '4ryl', '4rrr', '4rrq', '4yxu', '4zyv', '5iui', '5izu', '4xuh', '4yb6', '5hx8', '5gic', '5j3s', '5mrd', '5q0x', '5ngf', '5ien', '5one', '5if6', '5wqd', '6gbx', '5wkl', '6do4', '5ypw', '6ck3', '5wgq', '6do5', '6hjk', '6ck6', '6cmr', '6cjy', '6c5t', '6qyo', '6i4x', '6edl', '6r0x', '6e0r', '6ebw', '3nzc']
+
+    failed_pdb_list = []
 
     df = pd.read_csv('LP_PDBBind.csv', index_col=0)
     train_pdbs = [ x for x in list(df[(df['new_split'] == 'train') & df.CL1 & ~df.covalent].index) if x not in failed_pdb_list ]
     test_pdbs = [ x for x in list(df[(df['new_split'] == 'test') & df.CL1 & ~df.covalent].index) if x not in failed_pdb_list ]
-    print("Training size:", len(train_pdbs), "Test size:", len(test_pdbs))
 
-    for interaction_type in ['hbond', 'pistacking', 'hydrophobic']:
+    pdb_list = []
+
+    with open("INDEX_structure.2020") as file:
+        for line in file:
+            line=line.strip()
+            if line[0] != "#" and line != "":
+                pdb_list.append(line.split()[0])
+    
+
+    errorlist = ['1b6j', '6rsa']
+    pdb_list = [ pdb for pdb in pdb_list if pdb not in errorlist]
+
+    # these are available after recalc
+    train_pdbs = pdb_list[:200]
+    test_pdbs = pdb_list[200:300]
+
+    for interaction_type in ['hydrophobic']:
         print("@@@@ ", interaction_type)
         inter_pred = InteractionPredictor(n_pattern_layers = 3, 
                                     radius = 7.5,
@@ -156,12 +175,12 @@ def main():
         loss_fn = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(inter_pred.parameters(), lr=1e-3, amsgrad=True)
 
-        dataset_train = PDBBindInteractionDataset("pdbbind2020/", train_pdbs)
-        dataloader_train = DataLoader(dataset_train, batch_size=1, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=12)
-        dataset_test = PDBBindInteractionDataset("pdbbind2020/", test_pdbs)
-        dataloader_test = DataLoader(dataset_test, batch_size=1, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=12)
+        dataset_train = PDBBindInteractionDataset("pdbbind2020/", train_pdbs, interaction_type)
+        dataloader_train = DataLoader(dataset_train, batch_size=50, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=10)
+        dataset_test = PDBBindInteractionDataset("pdbbind2020/", test_pdbs, interaction_type)
+        dataloader_test = DataLoader(dataset_test, batch_size=50, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
 
-        train(200, 10, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, interaction_type)
+        train(10, 2, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
         print("\n-------------------------------------------------------------\n")
 
 if __name__ == "__main__":

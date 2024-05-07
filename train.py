@@ -38,12 +38,14 @@ def confusion_matrix_calc(predicted_interactions, true_interactions):
 
 def interaction_epoch(dataloader, interaction_model, loss_fn, optimizer, device):
     # Set the model to training mode - important for batch normalization and dropout layers
-    # Unnecessary in this situation but added for best practices
     interaction_model.train()
     total_loss = 0
     confusion_matrix = torch.zeros( (2,2), dtype=torch.int )
     for multigraph in dataloader:
         multi_g = multigraph.to(device)
+
+        # zero the parameter gradients
+        optimizer.zero_grad()
 
         # Compute prediction and loss
         predicted_interactions, edges = interaction_model(multi_g)
@@ -55,7 +57,6 @@ def interaction_epoch(dataloader, interaction_model, loss_fn, optimizer, device)
         # Backpropagation
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
 
         total_loss += loss.item()
         confusion_matrix += confusion_matrix_calc( predicted_interactions, true_interactions )
@@ -80,7 +81,7 @@ def interaction_eval(dataloader, interaction_model, loss_fn, device):
 
             true_interactions = edge_interactions(multi_g.y, edges, multi_g.pdb)
 
-            total_loss += loss_fn(predicted_interactions, true_interactions.float()).item()
+            total_loss += loss_fn(predicted_interactions, true_interactions.float()).item() if loss_fn != None else 0
             confusion_matrix += confusion_matrix_calc( predicted_interactions, true_interactions )
 
     return total_loss, confusion_matrix

@@ -129,6 +129,7 @@ def main():
     df = pd.read_csv('LP_PDBBind.csv', index_col=0)
     train_pdbs = [ x for x in list(df[(df['new_split'] == 'train') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
     test_pdbs = [ x for x in list(df[(df['new_split'] == 'test') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
+    val_pdbs = [ x for x in list(df[(df['new_split'] == 'val') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
 
     for interaction_type in defined_interactions:
         print("@@@@ ", interaction_type)
@@ -145,7 +146,9 @@ def main():
             pattern_spherical_harmonics_l = 2,
 
             # message format
-            irreps_message = o3.Irreps("8x0e + 1x1o + 1x2e"),
+            irreps_message_scalars = 8, 
+            irreps_message_vectors = 1, 
+            irreps_message_tensors = 1,
 
             # message batch normalization
             batch_normalize_msg = True,
@@ -155,7 +158,9 @@ def main():
             node_update_act = torch.relu,
 
             # geometric node format
-            irreps_node = o3.Irreps("8x0e + 1x1o + 1x2e"),
+            irreps_node_scalars = 8, 
+            irreps_node_vectors = 1, 
+            irreps_node_tensors = 1,
 
             # node update batch normalization
             batch_normalize_update=False,
@@ -170,8 +175,7 @@ def main():
 
             # general
             n_pattern_layers = 3,
-            radius = 7.5,
-            irreps_out = o3.Irreps("1x0e")
+            radius = 7.5
         )
 
         print("Model weights:", sum(p.numel() for p in inter_pred.parameters() if p.requires_grad))
@@ -180,13 +184,13 @@ def main():
         optimizer = torch.optim.Adam(inter_pred.parameters(), lr=1e-3, amsgrad=True)
 
         dataset_train = PDBBindInteractionDataset("pdbbind2020/", train_pdbs, interaction_type)
-        dataloader_train = DataLoader(dataset_train, batch_size=256, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=10)
+        dataloader_train = DataLoader(dataset_train, batch_size=64, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=10)
         dataset_test = PDBBindInteractionDataset("pdbbind2020/", test_pdbs, interaction_type)
-        dataloader_test = DataLoader(dataset_test, batch_size=256, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
+        dataloader_test = DataLoader(dataset_test, batch_size=64, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
 
         print("Training size:", len(dataset_train), "Test size:", len(dataset_test))
 
-        train(100, 20, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
+        train(20, 10, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
         print("\n-------------------------------------------------------------\n")
 
 if __name__ == "__main__":

@@ -188,31 +188,34 @@ class e3interaction(torch.nn.Module):
 class InteractionPredictor(torch.nn.Module):
 
     def __init__(self, n_pattern_layers, radius,
-                 irreps_message, pattern_spherical_harmonics_l, irreps_node,
+                 irreps_message_scalars, irreps_message_vectors, irreps_message_tensors,
+                 pattern_spherical_harmonics_l,
+                 irreps_node_scalars, irreps_node_vectors, irreps_node_tensors,
                  node_embedding_size, node_emb_hidden_layers,
                  msg_weights_hidden_layers, msg_weights_act,
                  node_update_hidden_layers, node_update_act,
                  basis_density_per_A, inter_spherical_harmonics_l,
                  inter_tp_weights_hidden_layers, inter_tp_weights_act,
-                 irreps_out,
                  batch_normalize_msg, batch_normalize_update):
         super(InteractionPredictor, self).__init__()
 
         # variables
         self.radius = radius
+        self.irreps_message = o3.Irreps( str(irreps_message_scalars) + "x0e + " + str(irreps_message_vectors) + "x1o + " + str(irreps_message_tensors) + "x2e")
+        self.irreps_node = o3.Irreps( str(irreps_node_scalars) + "x0e + " + str(irreps_node_vectors) + "x1o + " + str(irreps_node_tensors) + "x2e")
 
         # variable buffer
         self.register_buffer('hydrogen_embedding', torch.zeros(len(atom_types), requires_grad=False))
 
         # modules
         self.pattern_detector = e3pattern(n_pattern_layers,
-                 irreps_message, pattern_spherical_harmonics_l, irreps_node,
+                 self.irreps_message, pattern_spherical_harmonics_l, self.irreps_node,
                  node_embedding_size, node_emb_hidden_layers,
                  msg_weights_hidden_layers, msg_weights_act,
                  node_update_hidden_layers, node_update_act,
                  batch_normalize_msg=batch_normalize_msg,
                  batch_normalize_update=batch_normalize_update)
-        self.interaction = e3interaction(irreps_node, irreps_out, self.radius, 
+        self.interaction = e3interaction(self.irreps_node, o3.Irreps("1x0e"), self.radius, 
                                          basis_density_per_A, inter_spherical_harmonics_l, 
                                          inter_tp_weights_hidden_layers, inter_tp_weights_act)
 

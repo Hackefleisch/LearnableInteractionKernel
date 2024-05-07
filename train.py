@@ -124,12 +124,13 @@ def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, in
 
 def main():
     from prepare_pdbbind import pdb_ignore_list
+    from prepare_pdbbind import defined_interactions
 
     df = pd.read_csv('LP_PDBBind.csv', index_col=0)
     train_pdbs = [ x for x in list(df[(df['new_split'] == 'train') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
     test_pdbs = [ x for x in list(df[(df['new_split'] == 'test') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
 
-    for interaction_type in ['hbond']:
+    for interaction_type in defined_interactions:
         print("@@@@ ", interaction_type)
         inter_pred = InteractionPredictor(
             # node embedding mlp
@@ -168,7 +169,7 @@ def main():
             inter_spherical_harmonics_l = 2,
 
             # general
-            n_pattern_layers = 1,
+            n_pattern_layers = 3,
             radius = 7.5,
             irreps_out = o3.Irreps("1x0e")
         )
@@ -179,11 +180,13 @@ def main():
         optimizer = torch.optim.Adam(inter_pred.parameters(), lr=1e-3, amsgrad=True)
 
         dataset_train = PDBBindInteractionDataset("pdbbind2020/", train_pdbs, interaction_type)
-        dataloader_train = DataLoader(dataset_train, batch_size=50, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=10)
+        dataloader_train = DataLoader(dataset_train, batch_size=256, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=10)
         dataset_test = PDBBindInteractionDataset("pdbbind2020/", test_pdbs, interaction_type)
-        dataloader_test = DataLoader(dataset_test, batch_size=50, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
+        dataloader_test = DataLoader(dataset_test, batch_size=256, shuffle=True, collate_fn=dataset_test.collate_fn, pin_memory=True, num_workers=10)
 
-        train(2, 2, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
+        print("Training size:", len(dataset_train), "Test size:", len(dataset_test))
+
+        train(100, 20, dataloader_train, dataloader_test, inter_pred, loss_fn, optimizer, save_weights=False)
         print("\n-------------------------------------------------------------\n")
 
 if __name__ == "__main__":

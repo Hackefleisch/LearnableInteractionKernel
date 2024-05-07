@@ -272,7 +272,7 @@ def prepare_pdbbind(thread_id, max_threads):
             if line[0] != "#" and line != "":
                 pdb_list.append(line.split()[0])
 
-    overwrite = True
+    overwrite = False
 
     pdb_list = [ pdb for pdb in pdb_list if pdb not in pdb_ignore_list ]
     size = int(len(pdb_list) / max_threads)

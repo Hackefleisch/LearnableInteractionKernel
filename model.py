@@ -98,7 +98,7 @@ class e3pattern(torch.nn.Module):
         self.node_update_act=node_update_act
 
         # irreps
-        self.irreps_input = o3.Irreps( str(node_embedding_size) + "x0e")
+        self.irreps_input = o3.Irreps( str(node_embedding_size) + "x0e").remove_zero_multiplicities()
         self.irreps_message = irreps_message
         self.irreps_sh = o3.Irreps.spherical_harmonics(lmax=spherical_harmonics_l)
         self.irreps_node = irreps_node
@@ -201,8 +201,8 @@ class InteractionPredictor(torch.nn.Module):
 
         # variables
         self.radius = radius
-        self.irreps_message = o3.Irreps( str(irreps_message_scalars) + "x0e + " + str(irreps_message_vectors) + "x1o + " + str(irreps_message_tensors) + "x2e")
-        self.irreps_node = o3.Irreps( str(irreps_node_scalars) + "x0e + " + str(irreps_node_vectors) + "x1o + " + str(irreps_node_tensors) + "x2e")
+        self.irreps_message = o3.Irreps( str(irreps_message_scalars) + "x0e + " + str(irreps_message_vectors) + "x1o + " + str(irreps_message_tensors) + "x2e").remove_zero_multiplicities()
+        self.irreps_node = o3.Irreps( str(irreps_node_scalars) + "x0e + " + str(irreps_node_vectors) + "x1o + " + str(irreps_node_tensors) + "x2e").remove_zero_multiplicities()
 
         # variable buffer
         self.register_buffer('hydrogen_embedding', torch.zeros(len(atom_types), requires_grad=False))

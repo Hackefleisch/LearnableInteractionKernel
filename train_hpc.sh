@@ -1,11 +1,10 @@
 #!/bin/bash -l
 
+module load Anaconda3
 
-# Load modules your program needs, always specify versions!
-ml TensorFlow/2.3.1-fosscuda-2019b-Python-3.7.4 # Or whatever modules you need
+source $EBROOTANACONDA3/etc/profile.d/conda.sh
 
-# Load specific virtual environment (if applicable)
-source /path/to/environment/bin/activate
+conda activate /beegfs/.global1/ws/paei790f-learnable_kernel/conda_env
 
 # Load your script. $@ is all the parameters that are given to this run.sh file.
-python3 /absolute/path/to_script.py $@
+python ~/LearnableInteractionKernel/train.py $@

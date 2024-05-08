@@ -2,10 +2,10 @@
 import torch
 from torch import nn
 
+import ray
 from ray import tune
 from ray import train
 from ray.train import Checkpoint, get_checkpoint
-from ray.tune.schedulers import ASHAScheduler
 import ray.cloudpickle as pickle
 from ray.tune.search.optuna import OptunaSearch
 
@@ -203,11 +203,18 @@ def train_interaction(config, data_dir="pdbbind2020/", split_file='LP_PDBBind.cs
 
         eval_losses = {}
 
+        avg_recall = 0
+
         for interaction_type in interaction_types:
             _, _ = interaction_epoch(trainloaders[interaction_type], models[interaction_type], loss_fns[interaction_type], optimizers[interaction_type], device)
 
-            eval_losses[interaction_type], _ = interaction_eval(valloaders[interaction_type], models[interaction_type], loss_fns[interaction_type], device)
+            eval_losses[interaction_type], confusion_matrix = interaction_eval(valloaders[interaction_type], models[interaction_type], loss_fns[interaction_type], device)
             eval_losses[interaction_type] /= len(valloaders[interaction_type])
+
+            tp = confusion_matrix[0,0]
+            fn = confusion_matrix[1,0]
+            recall = tp/(tp+fn)
+            avg_recall += recall
 
             model_state_dicts[interaction_type] = models[interaction_type].state_dict()
             optimizer_state_dicts[interaction_type] = optimizers[interaction_type].state_dict()
@@ -220,6 +227,7 @@ def train_interaction(config, data_dir="pdbbind2020/", split_file='LP_PDBBind.cs
         report = {}
         for interaction_type in interaction_types:
             report[interaction_type + "_loss"] = eval_losses[interaction_type]
+        report['avg_recall'] = avg_recall.item() / len(interaction_types)
         report['weights'] = num_weights
         with tempfile.TemporaryDirectory() as checkpoint_dir:
             data_path = Path(checkpoint_dir) / "data.pkl"
@@ -266,6 +274,8 @@ def main(num_samples=4, num_epochs=10, gpus_per_trial=1, cpus_per_trial=4,
         ):
     from prepare_pdbbind import defined_interactions
 
+    ray.init()
+
     config = {
         "node_emb_hidden_layers": tune.choice([[], [8]]),
         "node_embedding_size": tune.choice([4, 8, 16]),
@@ -299,35 +309,40 @@ def main(num_samples=4, num_epochs=10, gpus_per_trial=1, cpus_per_trial=4,
     }
 
     metrics = [interaction_type + "_loss" for interaction_type in defined_interactions]
+    mode = ["min" for _ in defined_interactions]
 
 
     searcher = OptunaSearch(
-        space=config,
         metric=metrics,
-        mode=["min" for _ in defined_interactions],
+        mode=mode,
         points_to_evaluate=start_points()
     )
 
-    result = tune.run(
+    training_with_resources = tune.with_resources(
         partial(train_interaction, data_dir=project_path_absolute + data_dir, split_file=project_path_absolute + split_file, interaction_types=defined_interactions, max_epochs=num_epochs, num_workers=cpus_per_trial),
-        resources_per_trial={"cpu": cpus_per_trial, "gpu": gpus_per_trial},
-        num_samples=num_samples,
-        search_alg=searcher,
-        raise_on_failed_trial=False,
-        name="InteractionPrediction",
-        storage_path=project_path_absolute + storage_path
+        {"cpu": cpus_per_trial, "gpu": gpus_per_trial}
     )
 
-    best_trial = result.get_best_trial("hbond_loss", "min", "last")
-    print(f"Best trial config: {best_trial.config}")
-    print(f"Best trial final validation hbond_loss: {best_trial.last_result['hbond_loss']}")
-    print(f"Best trial final validation hydrophobic_loss: {best_trial.last_result['hydrophobic_loss']}")
-    print(f"Best trial final validation pistacking_loss: {best_trial.last_result['pistacking_loss']}")
-    print(f"Best trial final validation halogenbond_loss: {best_trial.last_result['halogenbond_loss']}")
-    print(f"Best trial final validation saltbridges_loss: {best_trial.last_result['saltbridges_loss']}")
-    print(f"Best trial final validation pication_loss: {best_trial.last_result['pication_loss']}")
+    tuner = tune.Tuner(
+        training_with_resources,
+        tune_config=tune.TuneConfig(
+            search_alg=searcher,
+            num_samples=num_samples,
+        ),
+        run_config=train.RunConfig(
+            storage_path=project_path_absolute + storage_path,
+            stop={"training_iteration": num_epochs}
+        ),
+        param_space=config
+    )
 
-    best_trained_model = create_model(best_trial.config)
+    results = tuner.fit()
+
+    best_result = results.get_best_result(metric=metrics) 
+    print(f"Best config: {best_result.config}")
+    print(f"Best metrics: {best_result.metrics}")
+
+    best_trained_model = create_model(best_result.config)
     device = "cpu"
     if torch.cuda.is_available():
         device = "cuda:0"
@@ -335,15 +350,15 @@ def main(num_samples=4, num_epochs=10, gpus_per_trial=1, cpus_per_trial=4,
             best_trained_model = nn.DataParallel(best_trained_model)
     best_trained_model.to(device)
 
-    best_checkpoint = result.get_best_checkpoint(trial=best_trial, metric="hbond_loss", mode="min")
+    best_checkpoint = best_result.checkpoint
     with best_checkpoint.as_directory() as checkpoint_dir:
         data_path = Path(checkpoint_dir) / "data.pkl"
         with open(data_path, "rb") as fp:
             best_checkpoint_data = pickle.load(fp)
-
-        best_trained_model.load_state_dict(best_checkpoint_data["model_state_dicts"]["hbond"])
-        test_recalls, test_precisions = test_evaluation(best_trained_model, device, data_dir=project_path_absolute + data_dir, split_file=project_path_absolute + split_file, interaction_types=defined_interactions, batch_size=64, num_workers=8)
         for interaction_type in defined_interactions:
+            best_trained_model.load_state_dict(best_checkpoint_data["model_state_dicts"][interaction_type])
+            test_recalls, test_precisions = test_evaluation(best_trained_model, device, data_dir=project_path_absolute + data_dir, split_file=project_path_absolute + split_file, interaction_types=[interaction_type], batch_size=64, num_workers=8)
+        
             print("Best trial test set", interaction_type, "recall: {} precision: {}".format(test_recalls[interaction_type], test_precisions[interaction_type]))
 
 if __name__ == "__main__":

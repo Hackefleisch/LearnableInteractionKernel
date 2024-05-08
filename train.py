@@ -36,13 +36,14 @@ def confusion_matrix_calc(predicted_interactions, true_interactions):
     return torch.tensor([[true_positives_predictions, negative_predictions_size - true_negatives_predictions],
                          [positive_predictions_size - true_positives_predictions, true_negatives_predictions]], dtype=torch.int)
 
-def interaction_epoch(dataloader, interaction_model, loss_fn, optimizer, device):
+def interaction_epoch(dataloader, interaction_model, loss_fn, optimizer, device, preload=False):
     # Set the model to training mode - important for batch normalization and dropout layers
     interaction_model.train()
     total_loss = 0
     confusion_matrix = torch.zeros( (2,2), dtype=torch.int )
-    for multigraph in dataloader:
-        multi_g = multigraph.to(device)
+    for multi_g in dataloader:
+        if not preload:
+            multi_g = multi_g.to(device)
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -63,7 +64,7 @@ def interaction_epoch(dataloader, interaction_model, loss_fn, optimizer, device)
 
     return total_loss, confusion_matrix
 
-def interaction_eval(dataloader, interaction_model, loss_fn, device):
+def interaction_eval(dataloader, interaction_model, loss_fn, device, preload=False):
     # Set the model to evaluation mode - important for batch normalization and dropout layers
     # Unnecessary in this situation but added for best practices
     interaction_model.eval()
@@ -73,8 +74,9 @@ def interaction_eval(dataloader, interaction_model, loss_fn, device):
     # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
     # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
     with torch.no_grad():
-        for multigraph in dataloader:
-            multi_g = multigraph.to(device)
+        for multi_g in dataloader:
+            if not preload:
+                multi_g = multi_g.to(device)
 
             predicted_interactions, edges = interaction_model(multi_g)
             predicted_interactions = predicted_interactions.squeeze()
@@ -86,37 +88,29 @@ def interaction_eval(dataloader, interaction_model, loss_fn, device):
 
     return total_loss, confusion_matrix
 
-def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, interaction_model, loss_fn, optimizer, save_weights=True):
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
-    )
-    print(f"Using {device} device.")
-    interaction_model.to(device)
+def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, interaction_model, loss_fn, optimizer, device, save_weights=True, preload=False):
+    
     best_eval_loss = 99999999.9
     for e in range(1, num_epochs+1):
-        epoch_loss, confusion_matrix = interaction_epoch(dataloader_train, interaction_model, loss_fn, optimizer, device)
-        tp = confusion_matrix[0,0]
-        fn = confusion_matrix[1,0]
-        fp = confusion_matrix[0,1]
+        epoch_loss, confusion_matrix = interaction_epoch(dataloader_train, interaction_model, loss_fn, optimizer, device, preload)
+        tp = confusion_matrix[0,0].item()
+        fn = confusion_matrix[1,0].item()
+        fp = confusion_matrix[0,1].item()
         recall = 100*tp/(tp+fn)
         precision = 0.0
         if tp + fp != 0:
             precision = 100*tp / (tp+fp)
         print(f"loss: {epoch_loss/len(dataloader_train):>7.10f}  recall: {recall:>6.2f}%  precision: {precision:>6.2f}%  [{e:>5d}/{num_epochs:>5d}]")
         if e % eval_every_n_epochs == 0 or e == num_epochs:
-            eval_loss, eval_conf_matrix = interaction_eval(dataloader_eval, interaction_model, loss_fn, device)
-            tp = eval_conf_matrix[0,0]
-            fn = eval_conf_matrix[1,0]
-            fp = eval_conf_matrix[0,1]
+            eval_loss, eval_conf_matrix = interaction_eval(dataloader_eval, interaction_model, loss_fn, device, preload)
+            tp = eval_conf_matrix[0,0].item()
+            fn = eval_conf_matrix[1,0].item()
+            fp = eval_conf_matrix[0,1].item()
             recall = 100*tp/(tp+fn)
             precision = 0.0
             if tp + fp != 0:
                 precision = 100*tp / (tp+fp)
-            print(f"####    eval set loss: {eval_loss/len(dataloader_eval):>7.10f}  recall: {recall:>6.2f}%  precision: {precision:>6.2f}%")
+            print(f"####  eval set loss: {eval_loss/len(dataloader_eval):>7.10f}  recall: {recall:>6.2f}%  precision: {precision:>6.2f}%")
             if eval_loss < best_eval_loss:
                 best_eval_loss = eval_loss
                 if save_weights:
@@ -149,7 +143,7 @@ def create_model(config):
             irreps_message_tensors = config['irreps_message_tensors'],
 
             # message batch normalization
-            batch_normalize_msg = config['batch_normalize_msg'],
+            batch_normalize_msg = config['batch_normalize_msg'] != 0,
 
             # node update weights mlp
             node_update_hidden_layers = [config['node_update_hidden_layers']] if config['node_update_hidden_layers'] != 0 else [],
@@ -161,7 +155,7 @@ def create_model(config):
             irreps_node_tensors = config['irreps_node_tensors'],
 
             # node update batch normalization
-            batch_normalize_update=config['batch_normalize_update'],
+            batch_normalize_update=config['batch_normalize_update'] != 0,
 
             # interaction tp weights mlp
             basis_density_per_A = config['basis_density_per_A'],
@@ -185,7 +179,9 @@ def main(
         abs_path,
         data_dir,
         split_file,
-        storage_path
+        storage_path,
+        num_workers,
+        full_dataset_on_gpu,
 ):
     from prepare_pdbbind import pdb_ignore_list
     from prepare_pdbbind import defined_interactions
@@ -196,24 +192,50 @@ def main(
     val_pdbs = [ x for x in list(df[(df['new_split'] == 'val') & df.CL1 & ~df.covalent].index) if x not in pdb_ignore_list ]
 
     validation_loss = 0.0
+    
+    device = (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+    print(f"Using {device} device.")
+
+    dataloader_train = {}
+    dataloader_val = {}
+    for interaction_type in defined_interactions:
+        dataset_train = PDBBindInteractionDataset(abs_path + data_dir, train_pdbs, interaction_type)
+        dataloader_train[interaction_type] = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=num_workers)
+        dataset_val = PDBBindInteractionDataset(abs_path + data_dir, val_pdbs, interaction_type)
+        dataloader_val[interaction_type] = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, collate_fn=dataset_val.collate_fn, pin_memory=True, num_workers=num_workers)
+
+    if(full_dataset_on_gpu):
+        print("Moving the whole dataset to GPU...")
+        for interaction_type in defined_interactions:
+            train_gpu = []
+            val_gpu = []
+            for mutligraph in dataloader_train[interaction_type]:
+                train_gpu.append(mutligraph.to(device))
+            for mutligraph in dataloader_val[interaction_type]:
+                val_gpu.append(mutligraph.to(device))
+            dataloader_train[interaction_type] = train_gpu
+            dataloader_val[interaction_type] = val_gpu
+
+    print("Training size:", len(dataset_train), "Validation size:", len(dataset_val), '\n')
 
     for interaction_type in defined_interactions:
         print("@@@@ ", interaction_type)
         inter_pred = create_model(config=config)
+        inter_pred.to(device)
 
         print("Model weights:", sum(p.numel() for p in inter_pred.parameters() if p.requires_grad))
 
         loss_fn = nn.BCEWithLogitsLoss()
-        optimizer = torch.optim.Adam(inter_pred.parameters(), lr=1e-3, amsgrad=True)
+        optimizer = torch.optim.Adam(inter_pred.parameters(), lr=config["lr"], amsgrad=True)
 
-        dataset_train = PDBBindInteractionDataset(abs_path + data_dir, train_pdbs, interaction_type)
-        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=6)
-        dataset_val = PDBBindInteractionDataset(abs_path + data_dir, val_pdbs, interaction_type)
-        dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, collate_fn=dataset_val.collate_fn, pin_memory=True, num_workers=6)
-
-        print("Training size:", len(dataset_train), "Validation size:", len(dataset_val))
-
-        validation_loss += train(epochs, 50, dataloader_train, dataloader_val, inter_pred, loss_fn, optimizer, save_weights=False) ** 2
+        # TODO: Implement the save weights function correctly
+        validation_loss += train(epochs, 50, dataloader_train[interaction_type], dataloader_val[interaction_type], inter_pred, loss_fn, optimizer, device, save_weights=False, preload=full_dataset_on_gpu) ** 2
         print("\n-------------------------------------------------------------\n")
 
     validation_loss = validation_loss ** 0.5
@@ -224,6 +246,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Trains a Kernel to predict biomolecular interactions')
     parser.add_argument('--epochs', type=int, required=True)
+    parser.add_argument('--num_workers', type=int, required=True)
+    parser.add_argument('--full_dataset_on_gpu', action='store_true')
     
     parser.add_argument('--node_emb_hidden_layers', type=int, required=True)
     parser.add_argument('--node_embedding_size', type=int, required=True)
@@ -237,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument('--irreps_message_vectors', type=int, required=True)
     parser.add_argument('--irreps_message_tensors', type=int, required=True)
 
-    parser.add_argument('--batch_normalize_msg', type=bool, required=True)
+    parser.add_argument('--batch_normalize_msg', type=int, required=True)
 
     parser.add_argument('--node_update_hidden_layers', type=int, required=True)
 
@@ -245,7 +269,7 @@ if __name__ == "__main__":
     parser.add_argument('--irreps_node_vectors', type=int, required=True)
     parser.add_argument('--irreps_node_tensors', type=int, required=True)
 
-    parser.add_argument('--batch_normalize_update', type=bool, required=True)
+    parser.add_argument('--batch_normalize_update', type=int, required=True)
 
     parser.add_argument('--basis_density_per_A', type=int, required=True)
     parser.add_argument('--inter_tp_weights_hidden_layers', type=int, required=True)
@@ -305,5 +329,7 @@ if __name__ == "__main__":
         abs_path=args.abs_path,
         data_dir=args.data_dir,
         split_file=args.split_file,
-        storage_path=args.storage_path
+        storage_path=args.storage_path,
+        num_workers=args.num_workers,
+        full_dataset_on_gpu=args.full_dataset_on_gpu
     )

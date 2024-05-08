@@ -122,7 +122,7 @@ def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, in
                 if save_weights:
                     torch.save(interaction_model.state_dict(), "model_weights/model_" + str(e) + ".weights")
 
-    return eval_loss
+    return eval_loss/len(dataloader_eval)
 
 def create_model(config):
     acts = {
@@ -181,6 +181,7 @@ def create_model(config):
 def main(
         config,
         epochs,
+        batch_size,
         abs_path,
         data_dir,
         split_file,
@@ -206,9 +207,9 @@ def main(
         optimizer = torch.optim.Adam(inter_pred.parameters(), lr=1e-3, amsgrad=True)
 
         dataset_train = PDBBindInteractionDataset(abs_path + data_dir, train_pdbs, interaction_type)
-        dataloader_train = DataLoader(dataset_train, batch_size=64, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=10)
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, collate_fn=dataset_train.collate_fn, pin_memory=True, num_workers=6)
         dataset_val = PDBBindInteractionDataset(abs_path + data_dir, val_pdbs, interaction_type)
-        dataloader_val = DataLoader(dataset_val, batch_size=64, shuffle=True, collate_fn=dataset_val.collate_fn, pin_memory=True, num_workers=10)
+        dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, collate_fn=dataset_val.collate_fn, pin_memory=True, num_workers=6)
 
         print("Training size:", len(dataset_train), "Validation size:", len(dataset_val))
 
@@ -300,6 +301,7 @@ if __name__ == "__main__":
     main(
         config=config,
         epochs=args.epochs,
+        batch_size=args.batch_size,
         abs_path=args.abs_path,
         data_dir=args.data_dir,
         split_file=args.split_file,

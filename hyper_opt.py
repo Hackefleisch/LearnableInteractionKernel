@@ -347,5 +347,27 @@ def main(num_samples=4, num_epochs=10, gpus_per_trial=1, cpus_per_trial=4,
             print("Best trial test set", interaction_type, "recall: {} precision: {}".format(test_recalls[interaction_type], test_precisions[interaction_type]))
 
 if __name__ == "__main__":
-    # You can change the number of GPUs per trial here:
-    main(num_samples=1, num_epochs=5, gpus_per_trial=1, cpus_per_trial=12)
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Run hyperparameter optimization for the trainable interaction kernel')
+    parser.add_argument('--num_samples', type=int, required=True,
+                        help='How many different combinations of hyperparameters should be tested')
+    parser.add_argument('--num_epochs', type=int, required=True,
+                        help='Specific number of max epochs for training - no early stopping!')
+    parser.add_argument('--gpus_per_trial', type=float, required=True,
+                        help='How many gpus are used for training a single trial - fractional gpus like 0.5 are okay')
+    parser.add_argument('--cpus_per_trial', type=int, required=True,
+                        help='How many cpus are used for training a single trial')
+    parser.add_argument('--abs_path', required=True,
+                        help='Absolute path for all in and out files')
+    parser.add_argument('--data_dir', required=True,
+                        help='Path to pdbbind within the project path')
+    parser.add_argument('--split_file', required=True,
+                        help='Path to LP_PDBBind split file within the project path')
+    parser.add_argument('--storage_path', required=True,
+                        help='Path to directory for saving results within the project path')
+    
+    args = parser.parse_args()
+
+    main(num_samples=args.num_samples, num_epochs=args.num_epochs, gpus_per_trial=args.gpus_per_trial, cpus_per_trial=args.cpus_per_trial, 
+         project_path_absolute=args.abs_path, data_dir=args.data_dir, split_file=args.split_file, storage_path=args.storage_path)

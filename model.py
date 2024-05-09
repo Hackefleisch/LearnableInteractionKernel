@@ -184,7 +184,50 @@ class e3interaction(torch.nn.Module):
         lig_node_embedding = torch.cat( [interaction_graph.x[edge_lig], sh_edge_embedding], dim=1 )
         distance_embedding = soft_one_hot_linspace(edge_vec.norm(dim=1), 0.0, self.radius, self.num_basis, basis='smooth_finite', cutoff=True).mul(self.num_basis**0.5)
         return self.e3tp_interaction(lig_node_embedding, interaction_graph.x[edge_rec], self.mlp_weights(distance_embedding))
-    
+
+def calc_interaction_edges(multigraph, radius, hydrogen_emb = None):
+    all_inter_edge_index = []
+    count_all_nodes = 0
+    for subgraph_idx in range(len(multigraph.pdb)):
+
+        num_rec_nodes = multigraph.n_rec_nodes[subgraph_idx]
+        num_lig_nodes = multigraph.n_lig_nodes[subgraph_idx]
+
+        # filter labels and positions
+        rec_atom_labels = multigraph.x[count_all_nodes:count_all_nodes+num_rec_nodes]
+        lig_atom_labels = multigraph.x[count_all_nodes+num_rec_nodes:count_all_nodes+num_rec_nodes+num_lig_nodes]
+        all_pos = multigraph.pos[count_all_nodes:count_all_nodes+num_rec_nodes+num_lig_nodes]
+
+        # create edge between neighboring atoms
+        inter_edge_index = radius_graph(x=all_pos, r=radius, loop=False, max_num_neighbors=all_pos.size(0)-1)
+
+        # Mask edges where one end is in rec and the other is in lig
+        # This ensures every pair interacts only once and the direction is from receptor to ligand
+        mask = (inter_edge_index[0] < num_rec_nodes) & (inter_edge_index[1] >= num_rec_nodes)
+        inter_edge_index = inter_edge_index[:, mask]
+
+        # create hydrogen masks
+        #       I think hydrogens are important for pattern detection, but it might be a good idea to leave them out for the interaction detection since PLIP ignores them as well
+        #       but: They can not be removed for plip or they will change the predicted interactions tremendously
+        if hydrogen_emb != None:
+            rec_h_mask = (rec_atom_labels == hydrogen_emb).all(dim=-1)
+            lig_h_mask = (lig_atom_labels == hydrogen_emb).all(dim=-1)
+
+            all_h_mask = torch.cat([rec_h_mask, lig_h_mask], dim=0)
+            device = ( "cuda" if all_h_mask.is_cuda else "cpu" )
+            hydrogen_indices = torch.arange(0,all_pos.size(0), 1, device=device)[all_h_mask]
+            rec_non_h_edge_mask = ((hydrogen_indices.view(-1,1) - inter_edge_index[0]) != 0).all(0)
+            lig_non_h_edge_mask = ((hydrogen_indices.view(-1,1) - inter_edge_index[1]) != 0).all(0)
+            all_non_h_edge_mask = rec_non_h_edge_mask & lig_non_h_edge_mask
+            
+            inter_edge_index = inter_edge_index[:, all_non_h_edge_mask]
+
+        inter_edge_index += count_all_nodes
+        count_all_nodes += num_rec_nodes + num_lig_nodes
+
+        all_inter_edge_index.append(inter_edge_index)
+    return torch.cat(all_inter_edge_index, dim=1)
+   
 class InteractionPredictor(torch.nn.Module):
 
     def __init__(self, n_pattern_layers, radius,
@@ -222,51 +265,122 @@ class InteractionPredictor(torch.nn.Module):
     def forward(self, combined_graph, all_inter_edge_index=None):
         
         if all_inter_edge_index == None:
-            all_inter_edge_index = []
-            count_all_nodes = 0
-            for subgraph_idx in range(len(combined_graph.pdb)):
-
-                num_rec_nodes = combined_graph.n_rec_nodes[subgraph_idx]
-                num_lig_nodes = combined_graph.n_lig_nodes[subgraph_idx]
-
-                # filter labels and positions
-                rec_atom_labels = combined_graph.x[count_all_nodes:count_all_nodes+num_rec_nodes]
-                lig_atom_labels = combined_graph.x[count_all_nodes+num_rec_nodes:count_all_nodes+num_rec_nodes+num_lig_nodes]
-                all_pos = combined_graph.pos[count_all_nodes:count_all_nodes+num_rec_nodes+num_lig_nodes]
-
-                # create edge between neighboring atoms
-                inter_edge_index = radius_graph(x=all_pos, r=self.radius, loop=False, max_num_neighbors=all_pos.size(0)-1)
-
-                # Mask edges where one end is in rec and the other is in lig
-                # This ensures every pair interacts only once and the direction is from receptor to ligand
-                mask = (inter_edge_index[0] < num_rec_nodes) & (inter_edge_index[1] >= num_rec_nodes)
-                inter_edge_index = inter_edge_index[:, mask]
-
-                # create hydrogen masks
-                #       I think hydrogens are important for pattern detection, but it might be a good idea to leave them out for the interaction detection since PLIP ignores them as well
-                #       but: They can not be removed for plip or they will change the predicted interactions tremendously
-                
-                self.hydrogen_embedding[ atom_types.index('H') ] = 1
-                rec_h_mask = (rec_atom_labels == self.hydrogen_embedding).all(dim=-1)
-                lig_h_mask = (lig_atom_labels == self.hydrogen_embedding).all(dim=-1)
-
-                all_h_mask = torch.cat([rec_h_mask, lig_h_mask], dim=0)
-                device = ( "cuda" if all_h_mask.is_cuda else "cpu" )
-                hydrogen_indices = torch.arange(0,all_pos.size(0), 1, device=device)[all_h_mask]
-                rec_non_h_edge_mask = ((hydrogen_indices.view(-1,1) - inter_edge_index[0]) != 0).all(0)
-                lig_non_h_edge_mask = ((hydrogen_indices.view(-1,1) - inter_edge_index[1]) != 0).all(0)
-                all_non_h_edge_mask = rec_non_h_edge_mask & lig_non_h_edge_mask
-                
-                inter_edge_index = inter_edge_index[:, all_non_h_edge_mask]
-
-                inter_edge_index += count_all_nodes
-                count_all_nodes += num_rec_nodes + num_lig_nodes
-
-                all_inter_edge_index.append(inter_edge_index)
+            self.hydrogen_embedding[ atom_types.index('H') ] = 1
+            all_inter_edge_index = calc_interaction_edges(combined_graph, self.radius, self.hydrogen_embedding)
 
         pattern_rec_graph = self.pattern_detector(combined_graph)
 
-        all_inter_edge_index=torch.cat(all_inter_edge_index, dim=1)
+        interaction_graph = Data(x=pattern_rec_graph.x, pos=combined_graph.pos, edge_index=all_inter_edge_index)
+
+        return self.interaction(interaction_graph), all_inter_edge_index
+    
+class PointwiseConvolution(torch.nn.Module):
+    def __init__(self, config):
+        super(PointwiseConvolution, self).__init__()
+        
+        # variables
+        self.node_embedding_size = config['node_embedding_size']
+        self.conv_radius = config['conv_radius']
+        self.num_basis = int(self.conv_radius * config['basis_density_per_A'])
+        self.batch_normalize = config['batch_normalize']
+
+        # irreps
+        self.irreps_sh = o3.Irreps.spherical_harmonics(lmax=config['spherical_harmonics_l'])
+        self.irreps_node_in = o3.Irreps(str(self.node_embedding_size) + "x0e")
+        self.irreps_node_out = o3.Irreps( str(config['irreps_node_scalars']) + "x0e + " + 
+                                      str(config['irreps_node_vectors']) + "x1o + " + 
+                                      str(config['irreps_node_tensors']) + "x2e").remove_zero_multiplicities()
+        
+        # e3 tp
+        self.e3tp = o3.FullyConnectedTensorProduct(self.irreps_node_in, self.irreps_sh, self.irreps_node_out, shared_weights=False)
+
+        # mlps
+        self.node_emb_layers = [len(atom_types)]
+        self.node_emb_layers.extend( config['node_emb_hidden_layers'] )
+        self.node_emb_layers.append( self.node_embedding_size )
+        self.mlp_node_embedder = FullyConnectedNet(self.node_emb_layers)
+        
+        self.tp_weights_layers = [self.num_basis]
+        self.tp_weights_layers.extend( config['tp_weights_hidden_layers'] )
+        self.tp_weights_layers.append( self.e3tp.weight_numel )
+        self.mlp_weights = FullyConnectedNet(self.tp_weights_layers, config['tp_weights_act'])
+
+        # batch normalizer
+        self.bn = BatchNorm(self.irreps_node_out) if self.batch_normalize else None
+
+
+    def forward(self, multigraph):
+
+        # onehot to initial node embeddings
+        node_emb = self.mlp_node_embedder(multigraph.x)
+
+        updated_graph = Data(x=node_emb, edge_index=multigraph.edge_index, pos=multigraph.pos, edge_attr=multigraph.edge_attr)
+        
+        all_intra_edge_index = []
+        count_all_nodes = 0
+        for subgraph_idx in range(len(multigraph.pdb)):
+
+            num_rec_nodes = multigraph.n_rec_nodes[subgraph_idx]
+            num_lig_nodes = multigraph.n_lig_nodes[subgraph_idx]
+            
+            # filter labels and positions
+            rec_atom_pos = multigraph.pos[count_all_nodes:count_all_nodes+num_rec_nodes]
+            lig_atom_pos = multigraph.pos[count_all_nodes+num_rec_nodes:count_all_nodes+num_rec_nodes+num_lig_nodes]
+
+            rec_intra_edges = radius_graph(rec_atom_pos, self.conv_radius, max_num_neighbors=num_rec_nodes - 1, loop=False)
+            lig_intra_edges = radius_graph(lig_atom_pos, self.conv_radius, max_num_neighbors=num_lig_nodes - 1, loop=False)
+
+            rec_intra_edges += count_all_nodes
+            lig_intra_edges += count_all_nodes + num_rec_nodes
+
+            count_all_nodes += num_rec_nodes + num_lig_nodes
+
+            all_intra_edge_index.append(rec_intra_edges)
+            all_intra_edge_index.append(lig_intra_edges)
+
+        all_intra_edge_index = torch.cat(all_intra_edge_index, dim=1)
+        
+        edge_src = all_intra_edge_index[ 0 ]
+        edge_dst = all_intra_edge_index[ 1 ]
+        num_neighbors = edge_src.size(dim=0) / multigraph.x.size(dim=0)
+
+        edge_vec = multigraph.pos[edge_dst] - multigraph.pos[edge_src]
+        sh = o3.spherical_harmonics(self.irreps_sh, edge_vec, normalize=True, normalization='component')
+        distance_emb = soft_one_hot_linspace(edge_vec.norm(dim=1), 0.0, self.conv_radius, self.num_basis, basis='smooth_finite', cutoff=True).mul(self.num_basis**0.5)
+        
+        tensor_products = self.e3tp(updated_graph.x[edge_src], sh, self.mlp_weights(distance_emb))
+        messages = scatter(tensor_products, edge_dst, dim=0, dim_size=len(multigraph.x)).div(num_neighbors**0.5)
+
+        updated_graph.x = torch.cat([node_emb, messages], dim=1)
+
+        return updated_graph
+
+class InteractionPredictorPointwise(torch.nn.Module):
+
+    def __init__(self, config):
+        super(InteractionPredictorPointwise, self).__init__()
+
+        # variables
+        self.radius = config['radius']
+
+        # variable buffer
+        self.register_buffer('hydrogen_embedding', torch.zeros(len(atom_types), requires_grad=False))
+
+        # modules
+        self.pattern_conv = PointwiseConvolution(config)
+
+        self.interaction = e3interaction(self.pattern_conv.irreps_node_in + self.pattern_conv.irreps_node_out, o3.Irreps("1x0e"), self.radius, 
+                                         config['basis_density_per_A'], config['spherical_harmonics_l'], 
+                                         config['inter_tp_weights_hidden_layers'], config['inter_tp_weights_act'])
+        
+    def forward(self, combined_graph, all_inter_edge_index=None):
+        
+        if all_inter_edge_index == None:
+            self.hydrogen_embedding[ atom_types.index('H') ] = 1
+            all_inter_edge_index = calc_interaction_edges(combined_graph, self.radius, self.hydrogen_embedding)
+
+        pattern_rec_graph = self.pattern_conv(combined_graph)
+
         interaction_graph = Data(x=pattern_rec_graph.x, pos=combined_graph.pos, edge_index=all_inter_edge_index)
 
         return self.interaction(interaction_graph), all_inter_edge_index

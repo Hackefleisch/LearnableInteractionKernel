@@ -118,64 +118,11 @@ def train(num_epochs, eval_every_n_epochs, dataloader_train, dataloader_eval, in
 
     return eval_loss/len(dataloader_eval)
 
-def create_model(config):
-    acts = {
-        "ReLU" : nn.ReLU(), 
-        "Sigmoid" : nn.Sigmoid(), 
-        "Hardtanh" : nn.Hardtanh()
-    }
-
-    inter_pred = InteractionPredictor(
-            # node embedding mlp
-            node_emb_hidden_layers = [config['node_emb_hidden_layers']] if config['node_emb_hidden_layers'] != 0 else [],
-            node_embedding_size = config['node_embedding_size'],
-
-            # message weights mlp
-            msg_weights_hidden_layers = [config['msg_weights_hidden_layers']] if config['msg_weights_hidden_layers'] != 0 else [],
-            msg_weights_act = acts[config['weights_act']],
-
-            # message tp spherical harmonics edge
-            pattern_spherical_harmonics_l = config['spherical_harmonics_l'],
-
-            # message format
-            irreps_message_scalars = config['irreps_message_scalars'], 
-            irreps_message_vectors = config['irreps_message_vectors'], 
-            irreps_message_tensors = config['irreps_message_tensors'],
-
-            # message batch normalization
-            batch_normalize_msg = config['batch_normalize_msg'] != 0,
-
-            # node update weights mlp
-            node_update_hidden_layers = [config['node_update_hidden_layers']] if config['node_update_hidden_layers'] != 0 else [],
-            node_update_act = acts[config['weights_act']],
-
-            # geometric node format
-            irreps_node_scalars = config['irreps_node_scalars'], 
-            irreps_node_vectors = config['irreps_node_vectors'], 
-            irreps_node_tensors = config['irreps_node_tensors'],
-
-            # node update batch normalization
-            batch_normalize_update=config['batch_normalize_update'] != 0,
-
-            # interaction tp weights mlp
-            basis_density_per_A = config['basis_density_per_A'],
-            inter_tp_weights_hidden_layers = [config['inter_tp_weights_hidden_layers']] if config['inter_tp_weights_hidden_layers'] != 0 else [],
-            inter_tp_weights_act = acts[config['weights_act']],
-
-            # interaction tp spherical harmonics
-            inter_spherical_harmonics_l = config['spherical_harmonics_l'],
-
-            # general
-            n_pattern_layers = config['n_pattern_layers'],
-            radius = config['radius']
-        )
-    
-    return inter_pred
-
 def main(
         config,
         epochs,
         batch_size,
+        lr,
         abs_path,
         data_dir,
         split_file,
@@ -226,17 +173,19 @@ def main(
 
     for interaction_type in defined_interactions:
         print("@@@@ ", interaction_type)
-        inter_pred = create_model(config=config)
+        inter_pred = InteractionPredictor(config)
         inter_pred.to(device)
 
         print("Model weights:", sum(p.numel() for p in inter_pred.parameters() if p.requires_grad))
 
         loss_fn = nn.BCEWithLogitsLoss()
-        optimizer = torch.optim.Adam(inter_pred.parameters(), lr=config["lr"], amsgrad=True)
+        optimizer = torch.optim.Adam(inter_pred.parameters(), lr=lr, amsgrad=True)
 
         # TODO: Implement the save weights function correctly
         validation_loss += train(epochs, 50, dataloader_train[interaction_type], dataloader_val[interaction_type], inter_pred, loss_fn, optimizer, device, save_weights=False, preload=full_dataset_on_gpu) ** 2
         print("\n-------------------------------------------------------------\n")
+
+
 
     validation_loss = validation_loss ** 0.5
     print(f"RESULT: {validation_loss:>8f} \n")
@@ -244,38 +193,43 @@ def main(
 if __name__ == "__main__":
     import argparse
 
+    acts = {
+        "ReLU" : nn.ReLU(), 
+        "Sigmoid" : nn.Sigmoid(), 
+        "Hardtanh" : nn.Hardtanh(),
+        "None" : None
+    }
+
     parser = argparse.ArgumentParser(description='Trains a Kernel to predict biomolecular interactions')
     parser.add_argument('--epochs', type=int, required=True)
     parser.add_argument('--num_workers', type=int, required=True)
     parser.add_argument('--full_dataset_on_gpu', action='store_true')
     
-    parser.add_argument('--node_emb_hidden_layers', type=int, required=True)
-    parser.add_argument('--node_embedding_size', type=int, required=True)
-
-    parser.add_argument('--msg_weights_hidden_layers', type=int, required=True)
-    parser.add_argument('--weights_act', required=True)
+    parser.add_argument('--radius', type=float, required=True)
+    parser.add_argument('--basis_density_per_A', type=int, required=True)
 
     parser.add_argument('--spherical_harmonics_l', type=int, required=True)
 
-    parser.add_argument('--irreps_message_scalars', type=int, required=True)
-    parser.add_argument('--irreps_message_vectors', type=int, required=True)
-    parser.add_argument('--irreps_message_tensors', type=int, required=True)
+    parser.add_argument('--node_embedding_scalars', type=int, required=True)
+    parser.add_argument('--node_embedding_vectors', type=int, required=True)
+    parser.add_argument('--node_embedding_tensors', type=int, required=True)
 
-    parser.add_argument('--batch_normalize_msg', type=int, required=True)
-
-    parser.add_argument('--node_update_hidden_layers', type=int, required=True)
-
-    parser.add_argument('--irreps_node_scalars', type=int, required=True)
-    parser.add_argument('--irreps_node_vectors', type=int, required=True)
-    parser.add_argument('--irreps_node_tensors', type=int, required=True)
-
-    parser.add_argument('--batch_normalize_update', type=int, required=True)
-
-    parser.add_argument('--basis_density_per_A', type=int, required=True)
-    parser.add_argument('--inter_tp_weights_hidden_layers', type=int, required=True)
-    parser.add_argument('--radius', type=float, required=True)
+    parser.add_argument('--interaction_tp_lig_weights_hidden_layers', type=int, required=True)
+    parser.add_argument('--interaction_tp_rec_weights_hidden_layers', type=int, required=True)
+    
+    parser.add_argument('--weights_act', required=True)
 
     parser.add_argument('--n_pattern_layers', type=int, required=True)
+
+    parser.add_argument('--node_emb_hidden_layers', type=int, required=True)
+    parser.add_argument('--node_update_hidden_layers', type=int, required=True)
+    parser.add_argument('--node_act', required=True)
+
+    parser.add_argument('--batch_normalize_node_upd', type=int, required=True)
+    parser.add_argument('--batch_normalize_msg', type=int, required=True)
+    
+    parser.add_argument('--msg_weights_hidden_layers', type=int, required=True)
+
     parser.add_argument('--batch_size', type=int, required=True)
     parser.add_argument('--lr', type=float, required=True)
 
@@ -291,41 +245,45 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = {
-        "node_emb_hidden_layers": args.node_emb_hidden_layers,
-        "node_embedding_size": args.node_embedding_size,
+        "radius": args.radius,
+        
+        "basis_density_per_A": args.basis_density_per_A,
 
-        "msg_weights_hidden_layers": args.msg_weights_hidden_layers,
-        "weights_act": args.weights_act,
+        "out_scalars": 1,
+        "out_vectors": 0,
+        "out_tensors": 0,
 
         "spherical_harmonics_l": args.spherical_harmonics_l,
 
-        "irreps_message_scalars": args.irreps_message_scalars,
-        "irreps_message_vectors": args.irreps_message_vectors,
-        "irreps_message_tensors": args.irreps_message_tensors,
+        "node_embedding_scalars": args.node_embedding_scalars,
+        "node_embedding_vectors": args.node_embedding_vectors,
+        "node_embedding_tensors": args.node_embedding_tensors,
 
-        "batch_normalize_msg": args.batch_normalize_msg,
-
-        "node_update_hidden_layers": args.node_update_hidden_layers,
-
-        "irreps_node_scalars": args.irreps_node_scalars,
-        "irreps_node_vectors": args.irreps_node_vectors,
-        "irreps_node_tensors": args.irreps_node_tensors,
-
-        "batch_normalize_update": args.batch_normalize_update,
-
-        "basis_density_per_A": args.basis_density_per_A,
-        "inter_tp_weights_hidden_layers": args.inter_tp_weights_hidden_layers,
-        "radius": args.radius,
+        "interaction_tp_lig_weights_hidden_layers":[args.interaction_tp_lig_weights_hidden_layers] if args.interaction_tp_lig_weights_hidden_layers != 0 else [],
+        "interaction_tp_rec_weights_hidden_layers":[args.interaction_tp_rec_weights_hidden_layers] if args.interaction_tp_rec_weights_hidden_layers != 0 else [],
+        "interaction_tp_lig_weights_act": acts[args.weights_act],
+        "interaction_tp_rec_weights_act": acts[args.weights_act],
 
         "n_pattern_layers": args.n_pattern_layers,
-        "batch_size": args.batch_size,
-        "lr": args.lr,
+
+        "node_emb_hidden_layers": [args.node_emb_hidden_layers] if args.node_emb_hidden_layers != 0 else [],
+        "node_emb_act": acts[args.node_act],
+
+        "batch_normalize_msg": args.batch_normalize_msg != 0,
+        "batch_normalize_node_upd": args.batch_normalize_node_upd != 0,
+
+        "msg_weights_hidden_layers": [args.msg_weights_hidden_layers] if args.msg_weights_hidden_layers != 0 else [],
+        "msg_weights_act": acts[args.weights_act],
+
+        "node_update_hidden_layers": [args.node_update_hidden_layers] if args.node_update_hidden_layers != 0 else [],
+        "node_update_act": acts[args.node_act],
     }
 
     main(
         config=config,
         epochs=args.epochs,
         batch_size=args.batch_size,
+        lr=args.lr,
         abs_path=args.abs_path,
         data_dir=args.data_dir,
         split_file=args.split_file,

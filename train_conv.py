@@ -153,7 +153,7 @@ if __name__ == "__main__":
         "tp_weights_hidden_layers": [args.tp_weights_hidden_layers] if args.tp_weights_hidden_layers != 0 else [],
         "tp_weights_act": acts[args.tp_weights_act],
 
-        "batch_normalize": args.batch_normalize,
+        "batch_normalize": args.batch_normalize != 0,
 
         "radius": args.radius,
         "inter_tp_weights_hidden_layers": [args.inter_tp_weights_hidden_layers] if args.inter_tp_weights_hidden_layers != 0 else [],

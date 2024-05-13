@@ -13,7 +13,6 @@ RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size
 ,1,0,0,512,200,16,8,1,6,8,1,3,0.01,16,4,8,8,8,,1,,Sigmoid
 1.373441,10,1,1,512,100,0,8,2,3,8,0,6,0.0001,16,2,0,8,0,1885.0,2,33692.0,Hardtanh
 ,1,0,0,512,100,16,16,1,6,8,0,3,0.001,0,3,0,4,8,,1,,ReLU
-RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size,epochs,inter_tp_weights_hidden_layers,irreps_message_scalars,irreps_message_tensors,irreps_message_vectors,irreps_node_scalars,irreps_node_tensors,irreps_node_vectors,lr,msg_weights_hidden_layers,n_pattern_layers,node_emb_hidden_layers,node_embedding_size,node_update_hidden_layers,size,spherical_harmonics_l,weights,weights_act
 0.11427899999999999,1,1,0,512,200,24,16,0,3,4,2,1,0.001,16,2,8,8,0,1885.0,1,15178.0,Hardtanh
 0.703408,10,0,0,64,300,0,4,1,1,8,0,6,0.0001,24,3,0,4,24,1885.0,1,42986.0,Hardtanh
 0.032425,5,1,1,128,200,16,8,0,6,4,1,1,0.0001,0,2,0,4,24,1885.0,1,10668.0,Sigmoid
@@ -233,7 +232,6 @@ RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size
 0.246286,5,0,1,512,200,8,8,1,6,4,1,3,0.0001,8,1,0,4,8,1885.0,2,2856.0,ReLU
 0.29934299999999997,5,0,1,128,100,0,4,0,6,16,2,3,0.01,8,4,0,4,8,1885.0,2,61194.0,Sigmoid
 0.074795,5,0,1,128,200,0,4,2,6,16,1,3,0.0001,8,1,0,4,8,1885.0,2,13854.0,ReLU
-RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size,epochs,inter_tp_weights_hidden_layers,irreps_message_scalars,irreps_message_tensors,irreps_message_vectors,irreps_node_scalars,irreps_node_tensors,irreps_node_vectors,lr,msg_weights_hidden_layers,n_pattern_layers,node_emb_hidden_layers,node_embedding_size,node_update_hidden_layers,size,spherical_harmonics_l,weights,weights_act
 0.138355,10,1,0,256,100,24,16,0,6,4,2,1,0.001,8,4,8,16,8,1885.0,1,27768.0,ReLU
 0.159076,1,0,0,64,300,24,4,2,6,16,1,1,0.0001,8,1,8,4,8,1885.0,1,9632.0,Hardtanh
 0.148479,1,1,0,128,300,8,16,1,1,16,1,3,0.0001,24,3,0,4,0,1885.0,1,128386.0,ReLU
@@ -592,7 +590,6 @@ RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size
 0.082061,1,0,1,128,100,24,4,0,1,16,2,6,0.01,24,3,0,16,24,1885.0,2,111272.0,Hardtanh
 0.020977000000000003,1,0,0,256,200,8,4,1,1,4,1,6,0.01,24,1,8,16,24,1885.0,2,12280.0,Sigmoid
 0.032487,5,0,0,256,200,24,4,0,6,16,1,3,0.01,24,1,0,16,24,1885.0,2,43616.0,Hardtanh
-RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size,epochs,inter_tp_weights_hidden_layers,irreps_message_scalars,irreps_message_tensors,irreps_message_vectors,irreps_node_scalars,irreps_node_tensors,irreps_node_vectors,lr,msg_weights_hidden_layers,n_pattern_layers,node_emb_hidden_layers,node_embedding_size,node_update_hidden_layers,size,spherical_harmonics_l,weights,weights_act
 2899.172739,1,0,0,64,300,24,16,2,6,16,1,1,0.0001,24,3,0,4,16,1885.0,1,185868.0,Hardtanh
 0.021043,1,1,0,64,200,8,4,1,3,4,1,1,0.001,8,1,8,8,16,1885.0,2,3692.0,Sigmoid
 0.019593,10,1,0,512,300,24,8,0,6,4,1,3,0.01,16,2,0,16,16,1885.0,1,27548.0,Sigmoid
@@ -691,7 +688,6 @@ RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size
 0.032831,5,0,1,256,100,16,4,1,1,8,2,6,0.01,24,3,0,4,24,1885.0,2,42300.0,ReLU
 0.021274,1,0,1,64,200,8,4,2,3,16,0,1,0.01,24,4,0,8,24,1885.0,2,110804.0,Sigmoid
 0.019047,1,0,1,128,100,16,4,2,1,8,2,6,0.001,0,3,0,4,24,1885.0,2,40700.0,Sigmoid
-RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size,epochs,inter_tp_weights_hidden_layers,irreps_message_scalars,irreps_message_tensors,irreps_message_vectors,irreps_node_scalars,irreps_node_tensors,irreps_node_vectors,lr,msg_weights_hidden_layers,n_pattern_layers,node_emb_hidden_layers,node_embedding_size,node_update_hidden_layers,size,spherical_harmonics_l,weights,weights_act
 0.059311,10,1,0,128,300,8,4,1,1,4,0,6,0.0001,0,4,0,4,8,1885.0,2,10132.0,ReLU
 0.061032,5,1,1,64,100,8,4,1,3,16,1,1,0.0001,0,4,8,4,0,1885.0,2,46248.0,ReLU
 0.098437,5,1,0,512,300,0,16,2,1,16,1,3,0.0001,16,1,8,4,24,1885.0,1,37172.0,Hardtanh
@@ -817,7 +813,6 @@ RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size
 ,10,0,0,512,200,16,8,2,3,8,1,6,0.01,16,4,8,8,8,,2,,Hardtanh
 ,10,1,1,512,300,24,16,2,1,8,2,6,0.001,16,2,0,4,0,,2,,Sigmoid
 0.193926,1,1,0,512,100,16,8,2,3,8,0,6,0.01,0,2,8,8,24,1885.0,2,47458.0,ReLU
-RESULT,basis_density_per_A,batch_normalize_msg,batch_normalize_update,batch_size,epochs,inter_tp_weights_hidden_layers,irreps_message_scalars,irreps_message_tensors,irreps_message_vectors,irreps_node_scalars,irreps_node_tensors,irreps_node_vectors,lr,msg_weights_hidden_layers,n_pattern_layers,node_emb_hidden_layers,node_embedding_size,node_update_hidden_layers,size,spherical_harmonics_l,weights,weights_act
 0.0484,5,1,1,64,300,8,4,2,1,8,1,3,0.001,24,4,8,16,0,1885.0,1,28006.0,ReLU
 0.032017000000000004,10,1,0,64,100,0,4,0,6,4,1,6,0.001,16,1,0,16,8,1885.0,1,14283.0,Sigmoid
 0.030454000000000002,10,1,0,512,300,0,4,0,3,16,2,1,0.01,0,3,8,4,0,1885.0,1,50407.0,Hardtanh

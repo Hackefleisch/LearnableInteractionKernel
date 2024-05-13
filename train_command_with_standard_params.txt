@@ -1,104 +1,94 @@
-python ~/LearnableInteractionKernel/train.py --epochs 100 --num_workers 6 --full_dataset_on_gpu --node_emb_hidden_layers 0 --node_embedding_size 8 --msg_weights_hidden_layers 24 --weights_act ReLU --spherical_harmonics_l 2 --irreps_message_scalars 8 --irreps_message_vectors 1 --irreps_message_tensors 1 --batch_normalize_msg 1 --node_update_hidden_layers 24 --irreps_node_scalars 8 --irreps_node_vectors 1 --irreps_node_tensors 1 --batch_normalize_update 0 --basis_density_per_A 5 --inter_tp_weights_hidden_layers 5 --radius 7.5 --n_pattern_layers 2 --batch_size 128 --lr 0.001 --abs_path /beegfs/ws/1/paei790f-learnable_kernel/ --data_dir pdbbind2020_reduced/ --split_file LP_PDBBind.csv --storage_path model_weights/
+bash ~/LearnableInteractionKernel/train_hpc.sh
+--num_workers 6 
+--full_dataset_on_gpu 
+--radius 7.5 
+--epochs 200
+--n_pattern_layers 3
+--basis_density_per_A 5
+--spherical_harmonics_l 2
+--node_embedding_scalars ($x_0) 
+--node_embedding_vectors ($x_1) 
+--node_embedding_tensors ($x_2) 
+--interaction_tp_lig_weights_hidden_layers ($x_3) 
+--interaction_tp_rec_weights_hidden_layers ($x_4) 
+--weights_act Sigmoid 
+--node_emb_hidden_layers ($x_5) 
+--node_update_hidden_layers ($x_6) 
+--node_act ($x_7)  
+--batch_normalize_msg ($x_8) 
+--batch_normalize_node_upd ($x_9) 
+--msg_weights_hidden_layers ($x_10) 
+--batch_size 256
+--lr 0.01 
+--abs_path /beegfs/ws/1/paei790f-learnable_kernel/ 
+--data_dir pdbbind2020_reduced/ 
+--split_file LP_PDBBind.csv 
+--storage_path model_weights/
+
 
 
 Config ini for https://imageseg.scads.ai/omnioptgui/
 
 [DATA]
-number_of_workers = 8
+number_of_workers = 40
 num_gpus_per_worker = 1
 precision = 8
 partition = alpha
-projectname = BiomolInteractionKernel
+projectname = TrainableKernels
 enable_gpus = 1
-mem_per_cpu = 5000
+mem_per_cpu = 10000
 computing_time = 72
-max_evals = 1000
+max_evals = 500
 algo_name = tpe.suggest
 range_generator_name = hp.randint
-objective_program = bash ~/LearnableInteractionKernel/train_hpc.sh --epochs ($x_0) --num_workers 6 --full_dataset_on_gpu --node_emb_hidden_layers ($x_1) --node_embedding_size ($x_2) --msg_weights_hidden_layers ($x_3) --weights_act ($x_4) --spherical_harmonics_l ($x_5) --irreps_message_scalars ($x_6) --irreps_message_vectors ($x_7) --irreps_message_tensors ($x_8) --batch_normalize_msg ($x_9) --node_update_hidden_layers ($x_10) --irreps_node_scalars ($x_11) --irreps_node_vectors ($x_12) --irreps_node_tensors ($x_13) --batch_normalize_update ($x_14) --basis_density_per_A ($x_15) --inter_tp_weights_hidden_layers ($x_16) --radius 7.5 --n_pattern_layers ($x_17) --batch_size ($x_18) --lr ($x_19) --abs_path /beegfs/ws/1/paei790f-learnable_kernel/ --data_dir pdbbind2020_reduced/ --split_file LP_PDBBind.csv --storage_path model_weights/
+objective_program = bash ~/LearnableInteractionKernel/train_hpc.sh --num_workers 6 --full_dataset_on_gpu --radius 7.5 --epochs 200 --n_pattern_layers 3 --basis_density_per_A 5 --spherical_harmonics_l 2 --node_embedding_scalars ($x_0) --node_embedding_vectors ($x_1) --node_embedding_tensors ($x_2) --interaction_tp_lig_weights_hidden_layers ($x_3) --interaction_tp_rec_weights_hidden_layers ($x_4) --weights_act Sigmoid --node_emb_hidden_layers ($x_5) --node_update_hidden_layers ($x_6) --node_act ($x_7) --batch_normalize_msg ($x_8) --batch_normalize_node_upd ($x_9) --msg_weights_hidden_layers ($x_10) --batch_size 256 --lr 0.01 --abs_path /beegfs/ws/1/paei790f-learnable_kernel/ --data_dir pdbbind2020_reduced/ --split_file LP_PDBBind.csv --storage_path model_weights/
 
 [DIMENSIONS]
-dimensions = 20
+dimensions = 11
 
-dim_0_name = epochs
+dim_0_name = node_embedding_scalars
 range_generator_0 = hp.choice
-options_0 = 100,200,300
+options_0 = 4,8,16
 
-dim_1_name = node_emb_hidden_layers
+dim_1_name = node_embedding_vectors
 range_generator_1 = hp.choice
-options_1 = 0,8
+options_1 = 3,6,12
 
-dim_2_name = node_embedding_size
+dim_2_name = node_embedding_tensors
 range_generator_2 = hp.choice
-options_2 = 4,8,16
+options_2 = 1,2,4
 
-dim_3_name = msg_weights_hidden_layers
+dim_3_name = interaction_tp_lig_weights_hidden_layers
 range_generator_3 = hp.choice
-options_3 = 0,8,16,24 
+options_3 = 8,16,24,32
 
-dim_4_name = weights_act
+dim_4_name = interaction_tp_rec_weights_hidden_layers
 range_generator_4 = hp.choice
-options_4 = ReLU,Sigmoid,Hardtanh
+options_4 = 8,16,24,32
 
-dim_5_name = spherical_harmonics_l
+dim_5_name = node_emb_hidden_layers
 range_generator_5 = hp.choice
-options_5 = 1,2
+options_5 = 8,16,24,32
 
-dim_6_name = irreps_message_scalars
+dim_6_name = node_update_hidden_layers
 range_generator_6 = hp.choice
-options_6 = 4,8,16
+options_6 = 8,16,24,32
 
-dim_7_name = irreps_message_vectors
+dim_7_name = node_act
 range_generator_7 = hp.choice
-options_7 = 1,3,6
+options_7 = ReLU,Sigmoid,Hardtanh,None
 
-dim_8_name = irreps_message_tensors
+dim_8_name = batch_normalize_msg
 range_generator_8 = hp.choice
-options_8 = 0,1,2
+options_8 = 0,1
 
-dim_9_name = batch_normalize_msg
+dim_9_name = batch_normalize_node_upd
 range_generator_9 = hp.choice
 options_9 = 0,1
 
-dim_10_name = node_update_hidden_layers
+dim_10_name = msg_weights_hidden_layers
 range_generator_10 = hp.choice
-options_10 = 0,8,16,24
-
-dim_11_name = irreps_node_scalars
-range_generator_11 = hp.choice
-options_11 = 4,8,16
-
-dim_12_name = irreps_node_vectors
-range_generator_12 = hp.choice
-options_12 = 1,3,6
-
-dim_13_name = irreps_node_tensors
-range_generator_13 = hp.choice
-options_13 = 0,1,2
-
-dim_14_name = batch_normalize_update
-range_generator_14 = hp.choice
-options_14 = 0,1
-
-dim_15_name = basis_density_per_A
-range_generator_15 = hp.choice
-options_15 = 1,5,10
-
-dim_16_name = inter_tp_weights_hidden_layers
-range_generator_16 = hp.choice
-options_16 = 0,8,16,24
-
-dim_17_name = n_pattern_layers
-range_generator_17 = hp.choice
-options_17 = 1,2,3,4
-
-dim_18_name = batch_size
-range_generator_18 = hp.choice
-options_18 = 64,128,256,512
-
-dim_19_name = lr
-range_generator_19 = hp.choice
-options_19 = 0.01,0.001,0.0001
+options_10 = 8,16,24,32
 
 [DEBUG]
 debug_xtreme = 0

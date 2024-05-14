@@ -4,7 +4,7 @@ import pandas as pd
 from torch import nn
 from data import PDBBindInteractionDataset
 from torch.utils.data import DataLoader
-from model import InteractionPredictorPointwise
+from models.InteractionPredictor import InteractionPredictorPointwise
 from train import train, interaction_eval
 
 import warnings

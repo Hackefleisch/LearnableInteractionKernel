@@ -16,7 +16,7 @@ from functools import partial
 
 from prepare_pdbbind import pdb_ignore_list
 from data import PDBBindInteractionDataset
-from model import InteractionPredictor
+from models.InteractionPredictor import InteractionPredictor
 
 from train import interaction_epoch
 from train import interaction_eval

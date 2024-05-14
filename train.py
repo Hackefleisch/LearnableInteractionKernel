@@ -5,7 +5,7 @@ import pandas as pd
 from torch import nn
 from data import PDBBindInteractionDataset
 from torch.utils.data import DataLoader
-from model import InteractionPredictor
+from models.InteractionPredictor import InteractionPredictor
 from e3nn import o3
 
 import warnings

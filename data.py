@@ -39,15 +39,15 @@ class PDBBindInteractionDataset(Dataset):
         n_rec_nodes = []
         n_lig_nodes = []
         y = []
-        for combined_graph in data:
-            x.append(combined_graph.x)
-            pos.append(combined_graph.pos)
-            edge_attr.append(combined_graph.edge_attr)
-            edge_index.append(combined_graph.edge_index + sum(n_rec_nodes) + sum(n_lig_nodes))
-            y.append(combined_graph.y + sum(n_rec_nodes) + sum(n_lig_nodes))
-            pdb.extend(combined_graph.pdb)
-            n_rec_nodes.extend(combined_graph.n_rec_nodes)
-            n_lig_nodes.extend(combined_graph.n_lig_nodes)
+        for graph in data:
+            x.append(graph.x)
+            pos.append(graph.pos)
+            edge_attr.append(graph.edge_attr)
+            edge_index.append(graph.edge_index + sum(n_rec_nodes) + sum(n_lig_nodes))
+            y.append(graph.y + sum(n_rec_nodes) + sum(n_lig_nodes))
+            pdb.extend(graph.pdb)
+            n_rec_nodes.extend(graph.n_rec_nodes)
+            n_lig_nodes.extend(graph.n_lig_nodes)
 
         multigraph = Data(
             x = torch.cat(x, dim=0),
@@ -80,6 +80,7 @@ class InteractionAffinitySet(Dataset):
         combined_graph = torch.load(path + "_combined.graph")
         interaction_edges = torch.zeros([2,0])
         interaction_edge_labels = torch.zeros([0,len(defined_interactions)])
+        n_interactions = 0
         for interaction_idx in range(len(defined_interactions)):
             interaction_type = defined_interactions[interaction_idx]
             interactions = torch.load(path + "_" + interaction_type + ".tensor")
@@ -88,11 +89,13 @@ class InteractionAffinitySet(Dataset):
             labels = torch.zeros([interactions.size(dim=0), len(defined_interactions)])
             labels[:,interaction_idx] += 1
             interaction_edge_labels = torch.cat([interaction_edge_labels, labels])
+            n_interactions += interactions.size(dim=0)
         affinity_tensor = torch.tensor([self.affinity[pdb_code]])
 
         combined_graph.interaction_edges = interaction_edges
         combined_graph.interaction_edge_labels = interaction_edge_labels
         combined_graph.affinity = affinity_tensor
+        combined_graph.n_interaction_atom_pairs = [n_interactions]
 
         return combined_graph
     
@@ -104,20 +107,22 @@ class InteractionAffinitySet(Dataset):
         pdb = []
         n_rec_nodes = []
         n_lig_nodes = []
+        n_interactions = []
         interaction_edges = []
         interaction_edge_labels = []
         affinity = []
-        for combined_graph in data:
-            x.append(combined_graph.x)
-            pos.append(combined_graph.pos)
-            edge_attr.append(combined_graph.edge_attr)
-            edge_index.append(combined_graph.edge_index + sum(n_rec_nodes) + sum(n_lig_nodes))
-            pdb.extend(combined_graph.pdb)
-            n_rec_nodes.extend(combined_graph.n_rec_nodes)
-            n_lig_nodes.extend(combined_graph.n_lig_nodes)
-            interaction_edges.append(combined_graph.interaction_edges + sum(n_rec_nodes) + sum(n_lig_nodes))
-            interaction_edge_labels.append(combined_graph.interaction_edge_labels)
-            affinity.append(combined_graph.affinity)
+        for graph in data:
+            x.append(graph.x)
+            pos.append(graph.pos)
+            edge_attr.append(graph.edge_attr)
+            edge_index.append(graph.edge_index + sum(n_rec_nodes) + sum(n_lig_nodes))
+            pdb.extend(graph.pdb)
+            n_rec_nodes.extend(graph.n_rec_nodes)
+            n_lig_nodes.extend(graph.n_lig_nodes)
+            interaction_edges.append(graph.interaction_edges + sum(n_rec_nodes) + sum(n_lig_nodes))
+            interaction_edge_labels.append(graph.interaction_edge_labels)
+            affinity.append(graph.affinity)
+            n_interactions.extend(graph.n_interaction_atom_pairs)
 
         multigraph = Data(
             x = torch.cat(x, dim=0),
@@ -130,6 +135,7 @@ class InteractionAffinitySet(Dataset):
             interaction_edges = torch.cat(interaction_edges, dim=1),
             interaction_edge_labels = torch.cat(interaction_edge_labels, dim=0),
             affinity = torch.cat(affinity, dim=0),
+            n_interactions = n_interactions,
         )
 
         return multigraph

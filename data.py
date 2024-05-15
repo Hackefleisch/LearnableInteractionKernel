@@ -115,7 +115,7 @@ class InteractionAffinitySet(Dataset):
             pdb.extend(combined_graph.pdb)
             n_rec_nodes.extend(combined_graph.n_rec_nodes)
             n_lig_nodes.extend(combined_graph.n_lig_nodes)
-            interaction_edges.append(combined_graph.interaction_edges)
+            interaction_edges.append(combined_graph.interaction_edges + sum(n_rec_nodes) + sum(n_lig_nodes))
             interaction_edge_labels.append(combined_graph.interaction_edge_labels)
             affinity.append(combined_graph.affinity)
 

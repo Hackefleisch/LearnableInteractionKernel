@@ -12,3 +12,4 @@
 /report.xml
 /hyperparam_tuning
 /pdbbind2020_reduced*
+/models/__pycache__

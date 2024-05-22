@@ -15,3 +15,7 @@
 /models/__pycache__
 /results
 /parallel-plots
+/model_weights
+/all_csvs_omniopt.csv
+/hyperparams.txt
+/train_command_with_standard_params.txt

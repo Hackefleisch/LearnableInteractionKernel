@@ -12,6 +12,41 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+standard_config = {
+    "radius": 7.5,
+        
+    "basis_density_per_A": 5,
+
+    "out_scalars": 1,
+    "out_vectors": 0,
+    "out_tensors": 0,
+
+    "spherical_harmonics_l": 2,
+
+    "node_embedding_scalars": 4,
+    "node_embedding_vectors": 12,
+    "node_embedding_tensors": 4,
+
+    "interaction_tp_lig_weights_hidden_layers":[32],
+    "interaction_tp_rec_weights_hidden_layers":[32],
+    "interaction_tp_lig_weights_act": nn.Sigmoid(),
+    "interaction_tp_rec_weights_act": nn.Sigmoid(),
+
+    "n_pattern_layers": 3,
+
+    "node_emb_hidden_layers": [8],
+    "node_emb_act": nn.ReLU(),
+
+    "batch_normalize_msg": False,
+    "batch_normalize_node_upd": True,
+
+    "msg_weights_hidden_layers": [8],
+    "msg_weights_act": nn.Sigmoid(),
+
+    "node_update_hidden_layers": [24],
+    "node_update_act": nn.ReLU(),
+}
+
 def edge_interactions(interaction_tensor, edges, pdb):
     num_edges = edges.size(1)
     num_interactions = interaction_tensor.size(0)
@@ -236,7 +271,8 @@ if __name__ == "__main__":
     parser.add_argument('--full_dataset_on_gpu', action='store_true')
     parser.add_argument('--save_weights', action='store_true')
     
-    parser.add_argument('--radius', type=float, default=7.5)
+    # TODO Use standard config for all default values
+    parser.add_argument('--radius', type=float, default=standard_config['radius'])
     parser.add_argument('--basis_density_per_A', type=int, default=5)
 
     parser.add_argument('--spherical_harmonics_l', type=int, default=2)
